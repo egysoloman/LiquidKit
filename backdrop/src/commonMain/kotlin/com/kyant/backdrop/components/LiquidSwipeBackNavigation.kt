@@ -64,6 +64,7 @@ fun <T : Any> LiquidSwipeBackNavigation(
     page: T, previousPage: T?, depth: (T) -> Int, contentKey: (T) -> Any,
     onNavigateBack: (T) -> Unit, modifier: Modifier = Modifier,
     predictiveBackEnabled: Boolean = true,
+    blankSwipeEnabled: Boolean = true,
     onVisualTargetChange: ((T) -> Unit)? = null,
     content: @Composable (T) -> Unit,
 ) {
@@ -139,8 +140,8 @@ fun <T : Any> LiquidSwipeBackNavigation(
         }
         drag = null
     }
-    Box(modifier.clipToBounds().pointerInput(key, parentKey, direction, motion) {
-        if (parentKey == null) return@pointerInput
+    Box(modifier.clipToBounds().pointerInput(key, parentKey, direction, motion, blankSwipeEnabled) {
+        if (!blankSwipeEnabled || parentKey == null) return@pointerInput
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             val parent = latestParent ?: return@awaitEachGesture

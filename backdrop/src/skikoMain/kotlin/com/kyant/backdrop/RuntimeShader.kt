@@ -65,7 +65,7 @@ internal class SkikoRuntimeShader(val shader: RuntimeShaderBuilder) : RuntimeSha
 
     override fun setColorUniform(name: String, color: Color) {
         val srgb = color.convert(ColorSpaces.Srgb)
-        val a = srgb.alpha
-        shader.uniform(name, srgb.red * a, srgb.green * a, srgb.blue * a, a)
+        // Match Android's RuntimeShader.setColorUniform contract (unpremultiplied straight RGBA).
+        shader.uniform(name, srgb.red, srgb.green, srgb.blue, srgb.alpha)
     }
 }

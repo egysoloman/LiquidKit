@@ -81,6 +81,7 @@ internal class DampedDragAnimation(
         animationScope.launch {
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { scaleAnimation.animateTo(initialScale, scaleAnimationSpec) }
+            launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
         }
     }
 
@@ -88,6 +89,7 @@ internal class DampedDragAnimation(
         targetValue = value.coerceIn(valueRange)
         animationScope.launch(start = CoroutineStart.UNDISPATCHED) {
             valueAnimation.animateTo(targetValue, valueAnimationSpec) { updateVelocity() }
+            velocityAnimation.animateTo(0f, velocityAnimationSpec)
         }
     }
 

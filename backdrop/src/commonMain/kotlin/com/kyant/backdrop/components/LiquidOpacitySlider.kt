@@ -1,5 +1,6 @@
 package com.kyant.backdrop.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
@@ -43,8 +44,10 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.isRuntimeShaderSupported
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.tanh
@@ -80,6 +83,14 @@ fun LiquidOpacitySlider(
         var widthPx by remember { mutableIntStateOf(0) }
         var heightPx by remember { mutableIntStateOf(0) }
         val latestValue by rememberUpdatedState(value)
+        val scope = rememberCoroutineScope()
+        val animatedValue = remember { Animatable(value.coerceIn(0f, 1f)) }
+        val seekSpring = remember { GlassSpring.swiftUI(response = 0.24f, dampingFraction = 0.86f).spec }
+        LaunchedEffect(value, pressed) {
+            if (!pressed) animatedValue.animateTo(value.coerceIn(0f, 1f), seekSpring)
+        }
+        val displayedValue = animatedValue.value.coerceIn(0f, 1f)
+        val hasShader = remember { isRuntimeShaderSupported() }
         val trackLayer = rememberLayerBackdrop()
         val fallbackThumbPath = remember { Path() }
         val combinedBackdrop = effectiveBackdrop?.let { base ->
@@ -111,16 +122,20 @@ fun LiquidOpacitySlider(
                         if (down.isConsumed) return@awaitEachGesture
                         val inset = 19.dp.toPx()
                         val trackSpan = (size.width - 2 * inset).coerceAtLeast(1f)
-                        val curCenterX = inset + trackSpan * (if (rtl) 1f - latestValue else latestValue)
+                        val curCenterX = inset + trackSpan * (if (rtl) 1f - animatedValue.value else animatedValue.value)
                         val hitThumb = abs(down.position.x - curCenterX) <= 26.dp.toPx()
+                        val grabOffsetPx = if (hitThumb) down.position.x - curCenterX else 0f
                         fun edgeOf(v: Float) = when { v <= 0.004f -> -1; v >= 0.996f -> 1; else -> 0 }
                         var lastEdge = edgeOf(latestValue)
-                        fun update(x: Float) {
+                        fun update(x: Float, snap: Boolean) {
                             val at = ((x - inset) / trackSpan).coerceIn(0f, 1f)
                             val v = if (rtl) 1f - at else at
                             val edge = edgeOf(v)
                             if (edge != 0 && edge != lastEdge) haptics(LiquidHaptic.ThresholdDetent)
                             lastEdge = edge
+                            scope.launch {
+                                if (snap) animatedValue.snapTo(v) else animatedValue.animateTo(v, seekSpring)
+                            }
                             change(v)
                         }
                         var claimed = hitThumb
@@ -138,7 +153,7 @@ fun LiquidOpacitySlider(
                                     if (!p.pressed) {
                                         if (abs(delta.x) <= slop && abs(delta.y) <= slop) {
                                             haptics(LiquidHaptic.SelectionTick)
-                                            update(p.position.x)
+                                            update(p.position.x, snap = false)
                                             finish()
                                             p.consume()
                                         }
@@ -151,12 +166,12 @@ fun LiquidOpacitySlider(
                                         claimed = true
                                         pressed = true
                                         dragging = true
-                                        update(p.position.x)
+                                        update(p.position.x - grabOffsetPx, snap = true)
                                         p.consume()
                                     }
                                 } else {
                                     dragging = dragging || abs(delta.x) > slop
-                                    update(p.position.x)
+                                    update(p.position.x - grabOffsetPx, snap = true)
                                     p.consume()
                                     if (!p.pressed) {
                                         if (!dragging) finish()
@@ -171,16 +186,16 @@ fun LiquidOpacitySlider(
                     }
                 },
         ) {
-            Canvas(Modifier.fillMaxSize().layerBackdrop(trackLayer, enabled = effectiveBackdrop != null && isGlassActive)) {
+            Canvas(Modifier.fillMaxSize().layerBackdrop(trackLayer, enabled = hasShader && effectiveBackdrop != null && isGlassActive)) {
                 val inset = 19.dp.toPx()
                 val left = inset
                 val right = (size.width - inset).coerceAtLeast(left)
-                val x = left + (right - left) * (if (rtl) 1f - value else value)
+                val x = left + (right - left) * (if (rtl) 1f - displayedValue else displayedValue)
                 val y = center.y
                 val thickness = 4.5.dp.toPx()
                 drawLine(if (dark) Color(0xff434446) else Color(0xffdbdce0), Offset(left, y), Offset(right, y), thickness, StrokeCap.Round)
                 drawLine(accent, Offset(if (rtl) right else left, y), Offset(x, y), thickness, StrokeCap.Round)
-                if (effectiveBackdrop == null) {
+                if (!hasShader || effectiveBackdrop == null) {
                     val lift = liftState.value
                     val scale = 1f + (HeldThumbScale - 1f) * lift
                     val halfHeight = 12.dp.toPx() * scale
@@ -190,15 +205,15 @@ fun LiquidOpacitySlider(
                     fallbackThumbPath.addLiquidCapsule(Rect(x - halfWidth, middle - halfHeight, x + halfWidth, middle + halfHeight))
                     val pressedFraction = lift.coerceIn(0f, 1f)
                     translate(top = 1.5.dp.toPx()) { drawPath(fallbackThumbPath, Color.Black.copy(alpha = .13f * (1f - pressedFraction))) }
-                    drawPath(fallbackThumbPath, Color.White.copy(alpha = 1f - .68f * pressedFraction))
+                    drawPath(fallbackThumbPath, Color.White.copy(alpha = 1f - .62f * pressedFraction))
                     drawPath(fallbackThumbPath, Color.White.copy(alpha = .64f * pressedFraction), style = Stroke(.7.dp.toPx()))
                 }
             }
-            if (combinedBackdrop != null && widthPx > 0 && heightPx > 0) {
+            if (hasShader && combinedBackdrop != null && widthPx > 0 && heightPx > 0) {
                 val insetPx = with(density) { 19.dp.toPx() }
                 val leftPx = insetPx
                 val rightPx = (widthPx.toFloat() - insetPx).coerceAtLeast(leftPx)
-                val xPx = leftPx + (rightPx - leftPx) * (if (rtl) 1f - value else value)
+                val xPx = leftPx + (rightPx - leftPx) * (if (rtl) 1f - displayedValue else displayedValue)
                 val thumbW = with(density) { 37.dp.toPx() }
                 val thumbH = with(density) { 24.dp.toPx() }
                 Box(

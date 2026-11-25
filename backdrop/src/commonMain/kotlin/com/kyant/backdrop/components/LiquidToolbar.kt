@@ -161,7 +161,10 @@ fun LiquidNavBarSlot(
                     if (current) {
                         LiquidToolbarButton(
                             label = action.label,
-                            onClick = action.onClick,
+                            onClick = {
+                                val menu = action.menuState
+                                if (menu != null) menu.show() else action.onClick()
+                            },
                             modifier = triggerMod,
                             enabled = action.enabled,
                             content = iconContent,

@@ -5,7 +5,7 @@
 1. **普通 Kotlin / Jetpack Compose / KMP 写法**（`io.liquidkit` 与底层光学引擎 `:backdrop`）—— 基于 Android 实时 AGSL / RenderEffect 背景采样折射、弹簧形变物理与边缘高光渲染。
 2. **Swift / SwiftUI 双端写法**（`Sources/LiquidKit`，支持 **原生 iOS 26+ `.glassEffect`** 与 **Skip / SkipUI 自动转译至 Android**）—— 一份 SwiftUI 代码同时运行在 iOS/macOS 与 Android。
 
-> **Pre-release (`v1.0.0-alpha.1`)**：当前处于首个公开预发布版本，核心交互、视觉光学材质与测试已就绪，公开 API 仍在持续完善中。
+> **Pre-release (`v1.0.0-alpha.2`)**：当前处于公开预发布版本，核心交互、视觉光学材质与测试已就绪，公开 API 仍在持续完善中。
 
 ---
 
@@ -32,7 +32,7 @@ LiquidKit/
 | Android | minSdk **21**（实时 AGSL 折射需 API 33+） | 低版本自动降级为柔和半透明/模糊材质 |
 | Compose Multiplatform | `1.12.0` / Kotlin `2.4.10` / AGP `9.3.2` | 支持 Android、Desktop (JVM)、iOS、macOS、JS、WasmJs |
 | Swift / Apple | Swift **6.0+**，iOS **18+** / macOS **15+** | iOS 26+ 自动启用原生 `.glassEffect` 与 `GlassEffectContainer`，iOS 18 回退 `.regularMaterial` |
-| Skip / SkipUI | `skip >= 1.6.0`，`skip-ui >= 1.30.0` | 设置 `SKIP_BRIDGE=1` 时自动桥接 `io.liquidkit:liquidkit-android:1.0.0-alpha.1` |
+| Skip / SkipUI | `skip >= 1.6.0`，`skip-ui >= 1.30.0` | 设置 `SKIP_BRIDGE=1` 时自动桥接 `io.liquidkit:liquidkit-android:1.0.0-alpha.2` |
 
 ---
 
@@ -44,11 +44,11 @@ LiquidKit/
 
 - **方式 A：直接下载 GitHub Pre-release 中的 AAR 文件**
 
-  从 [Releases](https://github.com/egysoloman/LiquidKit/releases) 下载 `liquidkit-1.0.0-alpha.1.aar` 和 `backdrop-2.0.1.aar` 放入 `app/libs/`：
+  从 [Releases](https://github.com/egysoloman/LiquidKit/releases) 下载 `liquidkit-1.0.0-alpha.2.aar` 和 `backdrop-2.0.1.aar` 放入 `app/libs/`：
 
   ```kotlin
   dependencies {
-      implementation(files("libs/liquidkit-1.0.0-alpha.1.aar"))
+      implementation(files("libs/liquidkit-1.0.0-alpha.2.aar"))
       implementation(files("libs/backdrop-2.0.1.aar"))
       implementation("org.jetbrains.compose.foundation:foundation:1.12.0")
       implementation("org.jetbrains.compose.animation:animation:1.12.0")
@@ -66,7 +66,7 @@ LiquidKit/
 
   ```kotlin
   dependencies {
-      implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.1")
+      implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.2")
       // 底层光学引擎 :backdrop 会作为 api 依赖自动传递，或显式引入：
       implementation("io.github.kyant0:backdrop-android:2.0.1")
   }
@@ -197,14 +197,14 @@ fun SampleLiquidScreen() {
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/egysoloman/LiquidKit.git", from: "1.0.0-alpha.1")
+    .package(url: "https://github.com/egysoloman/LiquidKit.git", from: "1.0.0-alpha.2")
 ]
 ```
 
 如需通过 **Skip** 转译到 Android：
 
 1. 本地先发布 Android 构件：`./gradlew :backdrop:publishToMavenLocal :liquidkit:publishToMavenLocal`
-2. 以 `SKIP_BRIDGE=1` 构建 Skip 工程（`Sources/LiquidKit/Skip/skip.yml` 会自动向生成的 Android Gradle 注入 `mavenLocal()` 与 `io.liquidkit:liquidkit-android:1.0.0-alpha.1`）。
+2. 以 `SKIP_BRIDGE=1` 构建 Skip 工程（`Sources/LiquidKit/Skip/skip.yml` 会自动向生成的 Android Gradle 注入 `mavenLocal()` 与 `io.liquidkit:liquidkit-android:1.0.0-alpha.2`）。
 
 #### 2. 编写 SwiftUI 页面（零 `#if SKIP` 样板代码）
 

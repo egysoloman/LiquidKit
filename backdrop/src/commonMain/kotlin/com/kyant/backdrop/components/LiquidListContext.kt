@@ -200,10 +200,13 @@ private fun ContextOverlay(
                     scaleY = scale.value
                     shadowElevation = elevation.value.dp.toPx().coerceAtLeast(0f)
                     val sourceShape = trigger.previewShape
-                    val baseCorner = sourceShape?.topStart?.toPx(size, this) ?: tokens.previewCorner.toPx()
-                    val targetRadius = if (preview != null) 22.dp.toPx() else tokens.previewCorner.toPx()
-                    val radius = lerpFloat(baseCorner, targetRadius, focus.value.coerceIn(0f, 1f))
-                    fun corner(original: CornerSize?) = CornerSize(maxOf(radius, original?.toPx(size, this) ?: 0f))
+                    val fallbackCorner = tokens.previewCorner.toPx()
+                    val targetRadius = if (preview != null) 22.dp.toPx() else fallbackCorner
+                    val p = focus.value.coerceIn(0f, 1f)
+                    fun corner(original: CornerSize?): CornerSize {
+                        val base = original?.toPx(size, this) ?: if (sourceShape != null) 0f else fallbackCorner
+                        return CornerSize(lerpFloat(base, targetRadius, p))
+                    }
                     shape = RoundedCornerShape(corner(sourceShape?.topStart), corner(sourceShape?.topEnd),
                         corner(sourceShape?.bottomEnd), corner(sourceShape?.bottomStart))
                     clip = true

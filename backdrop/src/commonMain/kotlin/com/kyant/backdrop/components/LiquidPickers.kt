@@ -1,6 +1,15 @@
 package com.kyant.backdrop.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -75,15 +84,30 @@ fun LiquidMenuPicker(
         }
     }
     val resolvedBackdrop = LocalLiquidSurfaceBackdrop.current ?: backdrop ?: emptyBackdrop()
+    val explicitBackdrop = backdrop
 
     if (registry != null) {
-        val entry = remember(menuState) { LiquidModalMenuEntry(menuState) }
+        val parentModalEntry = LocalCurrentModalEntry.current
+        val entry = remember(menuState, parentModalEntry) { LiquidModalMenuEntry(menuState, parentModalEntry) }
+        val currentItems by rememberUpdatedState(menuItems)
+        val currentBackdrop by rememberUpdatedState(resolvedBackdrop)
+        val currentExplicitBackdrop by rememberUpdatedState(explicitBackdrop)
         SideEffect {
             entry.active = menuState.expanded || closingReturn || menuState.dismissing || menuState.branches.isNotEmpty() || menuState.stackReturn != null
+        }
+        LaunchedEffect(entry) {
             entry.overlay = { hostOrigin, maxW, maxH ->
                 if (menuState.expanded || closingReturn) {
                     val anchor = menuState.openingBounds?.translate(-hostOrigin)
                     if (anchor != null) {
+                        val liveModal = LocalLiquidModalBackdrop.current
+                        val explicit = currentExplicitBackdrop
+                        val menuBackdrop = when {
+                            liveModal != null && explicit != null && liveModal != explicit ->
+                                com.kyant.backdrop.backdrops.rememberCombinedBackdrop(explicit, liveModal)
+                            liveModal != null -> liveModal
+                            else -> currentBackdrop
+                        }
                         Box(
                             Modifier.fillMaxSize().onPreviewKeyEvent {
                                 if (menuState.expanded && it.key == Key.Escape && it.type == KeyEventType.KeyDown) {
@@ -92,11 +116,11 @@ fun LiquidMenuPicker(
                                 } else false
                             },
                         ) {
-                            CompositionLocalProvider(LocalMenuBackdrop provides resolvedBackdrop) {
+                            CompositionLocalProvider(LocalMenuBackdrop provides menuBackdrop) {
                                 LiquidPopupPanel(
                                     state = menuState,
-                                    backdrop = resolvedBackdrop,
-                                    items = menuItems,
+                                    backdrop = menuBackdrop,
+                                    items = currentItems,
                                     anchor = anchor,
                                     hostWidth = maxW,
                                     hostHeight = maxH,
@@ -291,6 +315,7 @@ fun LiquidColorPicker(
             maxWidth = 332.dp,
             blurRadius = maxOf(appearance.menuBlurRadius, 22.dp),
         ) {
+            val popoverDismiss = LocalLiquidPopoverDismiss.current
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 BasicText(label, Modifier.weight(1f).semantics { heading() }, style = TextStyle(colors.ink, 17.sp, FontWeight.SemiBold))
                 Box(
@@ -299,7 +324,9 @@ fun LiquidColorPicker(
                         .clip(CircleShape)
                         .background(if (dark) Color(0xFF767680).copy(alpha = .28f) else Color(0xFF767680).copy(alpha = .14f))
                         .border(.6.dp, colors.separator.copy(alpha = .35f), CircleShape)
-                        .clickable(interactionSource = null, indication = null, role = Role.Button) { open = false }
+                        .clickable(interactionSource = null, indication = null, role = Role.Button) {
+                            popoverDismiss?.invoke() ?: run { open = false }
+                        }
                         .semantics { contentDescription = "关闭" },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -315,10 +342,16 @@ fun LiquidColorPicker(
                 backdrop = null,
             )
 
-            when (activeTab) {
-                "网格" -> ColorGridPanel(color, onColorChange)
-                "光谱" -> ColorSpectrumPanel(color, dark, onColorChange)
-                else -> ColorSlidersPanel(color, tint, dark, colors, onColorChange)
+            AnimatedContent(
+                targetState = activeTab,
+                transitionSpec = { fadeIn(tween(150)).togetherWith(fadeOut(tween(110))) },
+                label = "ColorPicker tab content",
+            ) { currentTab ->
+                when (currentTab) {
+                    "网格" -> ColorGridPanel(color, onColorChange)
+                    "光谱" -> ColorSpectrumPanel(color, dark, onColorChange)
+                    else -> ColorSlidersPanel(color, tint, dark, colors, onColorChange)
+                }
             }
 
             if (supportsOpacity) {
@@ -344,12 +377,22 @@ fun LiquidColorPicker(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Box(
-                    Modifier.size(54.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color.White)
-                        .background(color),
-                )
+                val checkerLight = if (dark) Color(0xFF8E8E93) else Color.White
+                val checkerDark = if (dark) Color(0xFF48484A) else Color(0xFFD1D1D6)
+                Canvas(
+                    Modifier.size(54.dp).clip(RoundedCornerShape(14.dp)),
+                ) {
+                    drawRect(checkerLight)
+                    val cell = size.width / 6f
+                    for (r in 0..5) {
+                        for (c in 0..5) {
+                            if ((r + c) % 2 == 0) {
+                                drawRect(checkerDark, Offset(c * cell, r * cell), Size(cell, cell))
+                            }
+                        }
+                    }
+                    drawRect(color)
+                }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         presets.take(5).forEach { swatch ->
@@ -429,32 +472,46 @@ private fun ColorGridPanel(color: Color, onColorChange: (Color) -> Unit) {
 }
 
 @Composable
-private fun ColorSpectrumPanel(color: Color, dark: Boolean, onColorChange: (Color) -> Unit) {
+private fun ColorSpectrumPanel(color: Color, @Suppress("UNUSED_PARAMETER") dark: Boolean, onColorChange: (Color) -> Unit) {
     val latestOnColorChange by rememberUpdatedState(onColorChange)
     val currentAlpha by rememberUpdatedState(color.alpha)
-    var reticle by remember(color) { mutableStateOf(colorToSpectrumPosition(color)) }
+    var dragging by remember { mutableStateOf(false) }
+    var reticle by remember { mutableStateOf(colorToSpectrumPosition(color)) }
+    LaunchedEffect(color, dragging) {
+        if (!dragging) {
+            val expected = spectrumPositionToColor(reticle.x, reticle.y, color.alpha)
+            if (absDiff(expected, color) > .03f) {
+                reticle = colorToSpectrumPosition(color)
+            }
+        }
+    }
 
     Canvas(
         Modifier.fillMaxWidth().height(206.dp).clip(RoundedCornerShape(12.dp))
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    dragging = true
                     fun updateAt(pos: Offset) {
                         val nx = (pos.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
                         val ny = (pos.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
                         reticle = Offset(nx, ny)
                         latestOnColorChange(spectrumPositionToColor(nx, ny, currentAlpha))
                     }
-                    updateAt(down.position)
-                    down.consume()
-                    do {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (change.pressed) {
-                            updateAt(change.position)
-                            change.consume()
-                        }
-                    } while (change.pressed)
+                    try {
+                        updateAt(down.position)
+                        down.consume()
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.pressed) {
+                                updateAt(change.position)
+                                change.consume()
+                            }
+                        } while (change.pressed)
+                    } finally {
+                        dragging = false
+                    }
                 }
             },
     ) {
@@ -466,8 +523,10 @@ private fun ColorSpectrumPanel(color: Color, dark: Boolean, onColorChange: (Colo
         val cy = reticle.y.coerceIn(0f, 1f) * size.height
         val radius = 12.dp.toPx()
         val luminance = .2126f * color.red + .7152f * color.green + .0722f * color.blue
-        val ringColor = if (dark && luminance > .52f) Color.Black else Color.White
+        val ringColor = if (luminance > .52f) Color.Black else Color.White
+        val outerColor = if (luminance > .52f) Color.White.copy(alpha = .55f) else Color.Black.copy(alpha = .45f)
         drawCircle(color.copy(alpha = 1f), radius = radius - 2.dp.toPx(), center = Offset(cx, cy))
+        drawCircle(outerColor, radius = radius + 1.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.4.dp.toPx()))
         drawCircle(ringColor, radius = radius, center = Offset(cx, cy), style = Stroke(2.8.dp.toPx()))
     }
 }
@@ -751,21 +810,26 @@ internal fun LiquidCalendarGrid(
     val cells = remember(shownYear, shownMonth) { calendarMonthCells(shownYear, shownMonth) }
     val selectedInk = liquidContentColorFor(tint)
     val barFill = if (dark) Color(0xFF767680).copy(alpha = .24f) else Color(0xFF767680).copy(alpha = .12f)
+    val haptics = rememberLiquidHaptics()
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 34.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(
                 Modifier.liquidControlPress()
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(interactionSource = null, indication = null, role = Role.Button) { wheelMode = !wheelMode }
+                    .clickable(interactionSource = null, indication = null, role = Role.Button) {
+                        haptics(LiquidHaptic.SelectionTick)
+                        wheelMode = !wheelMode
+                    }
                     .padding(horizontal = 4.dp, vertical = 4.dp)
                     .semantics { contentDescription = "切换年月滚轮" },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                val titleColor by animateColorAsState(if (wheelMode) tint else colors.ink, tween(140), label = "Calendar header color")
                 BasicText(
                     "${shownYear}年${shownMonth}月",
-                    style = TextStyle(if (wheelMode) tint else colors.ink, 17.sp, FontWeight.SemiBold),
+                    style = TextStyle(titleColor, 17.sp, FontWeight.SemiBold),
                 )
                 LiquidIcon(
                     LiquidSymbol.Forward,
@@ -774,105 +838,128 @@ internal fun LiquidCalendarGrid(
                 )
             }
             Spacer(Modifier.weight(1f))
-            if (!wheelMode) {
+            AnimatedVisibility(
+                visible = !wheelMode,
+                enter = fadeIn(tween(140)),
+                exit = fadeOut(tween(110)),
+            ) {
                 val canPrev = minDate == null || shownYear > minDate.year || (shownYear == minDate.year && shownMonth > minDate.month)
                 val canNext = maxDate == null || shownYear < maxDate.year || (shownYear == maxDate.year && shownMonth < maxDate.month)
-                Box(
-                    Modifier.size(38.dp).clip(CircleShape)
-                        .clickable(interactionSource = null, indication = null, enabled = canPrev, role = Role.Button) {
-                            if (shownMonth == 1) onMonthChange(shownYear - 1, 12) else onMonthChange(shownYear, shownMonth - 1)
-                        }
-                        .graphicsLayer { alpha = if (canPrev) 1f else .30f }
-                        .semantics { contentDescription = "上个月" },
-                    contentAlignment = Alignment.Center,
-                ) { LiquidIcon(LiquidSymbol.Back, arrowInk, Modifier.size(18.dp)) }
-                Box(
-                    Modifier.size(38.dp).clip(CircleShape)
-                        .clickable(interactionSource = null, indication = null, enabled = canNext, role = Role.Button) {
-                            if (shownMonth == 12) onMonthChange(shownYear + 1, 1) else onMonthChange(shownYear, shownMonth + 1)
-                        }
-                        .graphicsLayer { alpha = if (canNext) 1f else .30f }
-                        .semantics { contentDescription = "下个月" },
-                    contentAlignment = Alignment.Center,
-                ) { LiquidIcon(LiquidSymbol.Forward, arrowInk, Modifier.size(18.dp)) }
+                Row {
+                    Box(
+                        Modifier.size(38.dp).liquidControlPress(canPrev).clip(CircleShape)
+                            .clickable(interactionSource = null, indication = null, enabled = canPrev, role = Role.Button) {
+                                haptics(LiquidHaptic.SelectionTick)
+                                if (shownMonth == 1) onMonthChange(shownYear - 1, 12) else onMonthChange(shownYear, shownMonth - 1)
+                            }
+                            .graphicsLayer { alpha = if (canPrev) 1f else .30f }
+                            .semantics { contentDescription = "上个月" },
+                        contentAlignment = Alignment.Center,
+                    ) { LiquidIcon(LiquidSymbol.Back, arrowInk, Modifier.size(18.dp)) }
+                    Box(
+                        Modifier.size(38.dp).liquidControlPress(canNext).clip(CircleShape)
+                            .clickable(interactionSource = null, indication = null, enabled = canNext, role = Role.Button) {
+                                haptics(LiquidHaptic.SelectionTick)
+                                if (shownMonth == 12) onMonthChange(shownYear + 1, 1) else onMonthChange(shownYear, shownMonth + 1)
+                            }
+                            .graphicsLayer { alpha = if (canNext) 1f else .30f }
+                            .semantics { contentDescription = "下个月" },
+                        contentAlignment = Alignment.Center,
+                    ) { LiquidIcon(LiquidSymbol.Forward, arrowInk, Modifier.size(18.dp)) }
+                }
             }
         }
 
-        if (wheelMode) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                Spacer(Modifier.fillMaxWidth().height(32.dp).clip(LiquidCapsule).background(barFill))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LiquidWheelPicker(
-                        options = CalendarMonthLabels,
-                        selected = "${shownMonth}月",
-                        onSelect = { label ->
-                            label.removeSuffix("月").toIntOrNull()?.let { m ->
-                                onMonthChange(shownYear, m)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = colors,
-                        showSelectionBar = false,
-                    )
-                    LiquidWheelPicker(
-                        options = yearLabels,
-                        selected = "${shownYear}年",
-                        onSelect = { label ->
-                            label.removeSuffix("年").toIntOrNull()?.let { y ->
-                                onMonthChange(y, shownMonth)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = colors,
-                        showSelectionBar = false,
-                    )
+        AnimatedContent(
+            targetState = wheelMode,
+            transitionSpec = {
+                (fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.96f))
+                    .togetherWith(fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.96f))
+            },
+            label = "Calendar wheel mode",
+        ) { inWheel ->
+            if (inWheel) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                    Spacer(Modifier.fillMaxWidth().height(32.dp).clip(LiquidCapsule).background(barFill))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LiquidWheelPicker(
+                            options = CalendarMonthLabels,
+                            selected = "${shownMonth}月",
+                            onSelect = { label ->
+                                label.removeSuffix("月").toIntOrNull()?.let { m ->
+                                    onMonthChange(shownYear, m)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = colors,
+                            showSelectionBar = false,
+                        )
+                        LiquidWheelPicker(
+                            options = yearLabels,
+                            selected = "${shownYear}年",
+                            onSelect = { label ->
+                                label.removeSuffix("年").toIntOrNull()?.let { y ->
+                                    onMonthChange(y, shownMonth)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = colors,
+                            showSelectionBar = false,
+                        )
+                    }
                 }
-            }
-        } else {
-            Row(Modifier.fillMaxWidth()) {
-                WeekdayLabels.forEach { dayName ->
-                    BasicText(
-                        dayName,
-                        Modifier.weight(1f),
-                        style = TextStyle(colors.secondary, 12.sp, FontWeight.SemiBold, textAlign = TextAlign.Center),
-                    )
-                }
-            }
-            cells.chunked(7).forEach { week ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    week.forEach { day ->
-                        if (day == null) {
-                            Spacer(Modifier.weight(1f).height(40.dp))
-                        } else {
-                            val candidate = LiquidCalendarDate(shownYear, shownMonth, day)
-                            val inRange = (minDate == null || candidate >= minDate) && (maxDate == null || candidate <= maxDate)
-                            val active = isSelected(candidate)
-                            val isToday = today != null && candidate == today
-                            Box(
-                                Modifier.weight(1f).height(40.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Box(
-                                    Modifier.size(38.dp).clip(CircleShape)
-                                        .background(if (active) tint else Color.Transparent)
-                                        .clickable(interactionSource = null, indication = null, enabled = inRange, role = Role.Button) { onSelectDate(candidate) }
-                                        .graphicsLayer { alpha = if (inRange) 1f else .28f }
-                                        .semantics { selected = active },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    BasicText(
-                                        day.toString(),
-                                        style = TextStyle(
-                                            color = when {
-                                                active -> selectedInk
-                                                isToday -> tint
-                                                else -> colors.ink
-                                            },
-                                            fontSize = 18.sp,
-                                            fontWeight = if (active || isToday) FontWeight.SemiBold else FontWeight.Normal,
-                                            textAlign = TextAlign.Center,
-                                        ),
-                                    )
+            } else {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        WeekdayLabels.forEach { dayName ->
+                            BasicText(
+                                dayName,
+                                Modifier.weight(1f),
+                                style = TextStyle(colors.secondary, 12.sp, FontWeight.SemiBold, textAlign = TextAlign.Center),
+                            )
+                        }
+                    }
+                    cells.chunked(7).forEach { week ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            week.forEach { day ->
+                                if (day == null) {
+                                    Spacer(Modifier.weight(1f).height(40.dp))
+                                } else {
+                                    val candidate = LiquidCalendarDate(shownYear, shownMonth, day)
+                                    val inRange = (minDate == null || candidate >= minDate) && (maxDate == null || candidate <= maxDate)
+                                    val active = isSelected(candidate)
+                                    val isToday = today != null && candidate == today
+                                    val pillBg by animateColorAsState(if (active) tint else Color.Transparent, tween(140), label = "Calendar day pill")
+                                    Box(
+                                        Modifier.weight(1f).height(40.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Box(
+                                            Modifier.size(38.dp).liquidControlPress(inRange).clip(CircleShape)
+                                                .background(pillBg)
+                                                .clickable(interactionSource = null, indication = null, enabled = inRange, role = Role.Button) {
+                                                    haptics(LiquidHaptic.SelectionTick)
+                                                    onSelectDate(candidate)
+                                                }
+                                                .graphicsLayer { alpha = if (inRange) 1f else .28f }
+                                                .semantics { selected = active },
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            BasicText(
+                                                day.toString(),
+                                                style = TextStyle(
+                                                    color = when {
+                                                        active -> selectedInk
+                                                        isToday -> tint
+                                                        else -> colors.ink
+                                                    },
+                                                    fontSize = 18.sp,
+                                                    fontWeight = if (active || isToday) FontWeight.SemiBold else FontWeight.Normal,
+                                                    textAlign = TextAlign.Center,
+                                                ),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1000,9 +1087,10 @@ fun LiquidDatePicker(
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center,
                 ) {
+                    val badgeInk by animateColorAsState(if (open) tint else colors.ink, tween(140), label = "DatePicker badge ink")
                     BasicText(
                         "${date.year}年${date.month}月${date.day}日",
-                        style = TextStyle(if (open) tint else colors.ink, 16.sp, FontWeight.Normal),
+                        style = TextStyle(badgeInk, 16.sp, FontWeight.Normal),
                     )
                 }
             }
@@ -1016,6 +1104,7 @@ fun LiquidDatePicker(
                     maxWidth = 336.dp,
                     blurRadius = maxOf(appearance.menuBlurRadius, 22.dp),
                 ) {
+                    val popoverDismiss = LocalLiquidPopoverDismiss.current
                     LiquidCalendarGrid(
                         shownYear = shownYear,
                         shownMonth = shownMonth,
@@ -1023,7 +1112,7 @@ fun LiquidDatePicker(
                         isSelected = { it == date },
                         onSelectDate = { chosen ->
                             onDateChange(clampCalendarDate(chosen, minDate, maxDate))
-                            open = false
+                            popoverDismiss?.invoke() ?: run { open = false }
                         },
                         tint = tint,
                         colors = colors,

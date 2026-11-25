@@ -3,6 +3,7 @@ package com.kyant.backdrop.components
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
@@ -60,38 +61,47 @@ fun LiquidButton(
     val rim = rememberLiquidRimHighlight(appearance.dark)
     val hasShader = isRuntimeShaderSupported()
     val fill = if (hasShader) appearance.customTintOnly(surfaceColor) else appearance.overlay(surfaceColor)
-    GlassForeground(
-        modifier
-            .then(if (isInteractive) interactiveHighlight.gestureModifier else Modifier)
-            .then(if (isInteractive) Modifier.graphicsLayer { interactiveHighlight.motion.apply(this) } else Modifier)
-            .clickable(
-                interactionSource = null,
-                indication = if (isInteractive) null else LocalIndication.current,
-                role = Role.Button,
-                onClick = onClick
-            )
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { LiquidCapsule },
-                highlight = { rim }, shadow = { LiquidSurfaceShadow },
-                effects = { liquidSurfaceLens(appearance.controlBlurRadius, appearance, LiquidGlassRole.Control) },
-                onDrawSurface = {
-                    if (fill != null) drawRect(fill)
-                    if (tint.isSpecified) {
-                        drawRect(tint, blendMode = BlendMode.Hue)
-                        drawRect(tint.copy(alpha = 0.75f))
+    val hasTint = tint.isSpecified && tint.alpha > 0f
+    val chromaticTint = hasTint && (maxOf(tint.red, tint.green, tint.blue) - minOf(tint.red, tint.green, tint.blue)) > 0.05f
+    val contentColor = if (hasTint && tint.alpha >= 0.35f) liquidContentColorFor(tint) else appearance.contentColor
+    androidx.compose.runtime.CompositionLocalProvider(LocalLiquidContentColor provides contentColor) {
+        Box(
+            modifier
+                .then(if (isInteractive) interactiveHighlight.gestureModifier else Modifier)
+                .then(if (isInteractive) Modifier.graphicsLayer { interactiveHighlight.motion.apply(this) } else Modifier)
+                .clickable(
+                    interactionSource = null,
+                    indication = if (isInteractive) null else LocalIndication.current,
+                    role = Role.Button,
+                    onClick = onClick
+                )
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { LiquidCapsule },
+                    highlight = { rim }, shadow = { LiquidSurfaceShadow },
+                    effects = { liquidSurfaceLens(appearance.controlBlurRadius, appearance, LiquidGlassRole.Control) },
+                    onDrawSurface = {
+                        if (fill != null) drawRect(fill)
+                        if (hasTint) {
+                            if (chromaticTint) {
+                                drawRect(tint.copy(alpha = 1f), blendMode = BlendMode.Hue)
+                            }
+                            drawRect(tint.copy(alpha = (tint.alpha * 0.75f).coerceIn(0f, 1f)))
+                        }
+                        if (isInteractive) interactiveHighlight.drawLight(this, brightenBackdrop = !appearance.dark)
                     }
-                    if (isInteractive) interactiveHighlight.drawLight(this, brightenBackdrop = !appearance.dark)
-                }
+                )
+                .height(48.dp),
+            contentAlignment = Alignment.Center,
+            propagateMinConstraints = true,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+                content = content,
             )
-            .height(48.dp),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-            content = content,
-        )
+        }
     }
 }
 

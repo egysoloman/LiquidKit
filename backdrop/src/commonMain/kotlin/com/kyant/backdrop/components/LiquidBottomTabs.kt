@@ -78,7 +78,9 @@ internal fun LiquidBottomTabsLayout(
     val plateRim = rememberLiquidRimHighlight(appearance.dark, layeredEdge = true, reflectionInSurface = true)
     val lensRim = rememberLiquidRimHighlight(appearance.dark, layeredEdge = true)
     val accent = if (tint.isSpecified) tint else if (appearance.dark) Color(0xff0091ff) else Color(0xff0088ff)
-    val selected = selectedTabIndex().coerceIn(0, tabsCount - 1)
+    val rawSelected = selectedTabIndex()
+    val hasSelection = rawSelected in 0 until tabsCount
+    val selected = rawSelected.coerceIn(0, tabsCount - 1)
     val currentSelection by rememberUpdatedState(selected)
     val select by rememberUpdatedState(onTabSelected)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -89,6 +91,11 @@ internal fun LiquidBottomTabsLayout(
     var tracking by remember(tabsCount, rtl) { mutableStateOf(false) }
     var pull by remember(tabsCount, rtl) { mutableStateOf(Offset.Zero) }
     var dragCommit by remember { mutableStateOf<Int?>(null) }
+    val pillVisibility by animateFloatAsState(
+        if (hasSelection || finger != null) 1f else 0f,
+        tokens.press.centerRelease.spec,
+        label = "Tab pill visibility",
+    )
     val destination = finger ?: selected.toFloat()
     // These are the two physical ends in logical tab order. On reversal they keep their
     // positions and velocities, and exchange which spring leads the new movement.
@@ -522,7 +529,7 @@ internal fun LiquidBottomTabsLayout(
             effects = {}, highlight = { lensRim.copy(alpha = (tokens.highlightIntensity * strength()).coerceIn(0f, 1f)) },
             shadow = { LiquidSurfaceShadow.copy(alpha = strength(), color = Color.Black.copy(alpha = .065f)) },
             onDrawSurface = {
-                drawRect(selectionInk, alpha = 1f - strength())
+                drawRect(selectionInk, alpha = ((1f - strength()) * pillVisibility).coerceIn(0f, 1f))
                 bevel(tab.hoverMaterialStrength.coerceIn(0f, 1f) * tokens.highlightIntensity * strength())
             }))
         // Both paints use the same live row. The tinted lens has no second set of buttons or semantics.
@@ -563,7 +570,10 @@ internal fun LiquidBottomTabsLayout(
                     val color = accent
                     val coordinates = plateCoordinates
                     val sampleBackdrop = tab.inkVibrancy > 0f && coordinates?.isAttached == true
-                    if (shader != null && (active > .001f || sampleBackdrop)) {
+                    val showInkEffect = active > .001f || (pillVisibility > .001f && sampleBackdrop)
+                    if (!showInkEffect && pillVisibility <= .001f) {
+                        drawLayer(inkLayer)
+                    } else if (shader != null && showInkEffect) {
                         val cropLeft = (rect.center.x - inkCropW * 0.5f).roundToInt().toFloat()
                         val cropTop = (rect.center.y - inkCropH * 0.5f).roundToInt().toFloat()
                         val rectCx = rect.center.x - cropLeft

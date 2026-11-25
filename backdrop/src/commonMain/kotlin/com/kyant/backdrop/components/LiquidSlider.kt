@@ -44,6 +44,7 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.isRuntimeShaderSupported
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
@@ -179,11 +180,13 @@ fun LiquidSlider(
         val normalizedTicks = remember(ticks, valueRange) {
             ticks.map { it.coerceIn(valueRange) }.distinct().sorted()
         }
-        fun valueAt(posX: Float): Float {
+        val currentNeutralValue by rememberUpdatedState(neutralValue)
+        val hasRuntimeShader = remember { isRuntimeShaderSupported() }
+        fun valueAt(posX: Float, snap: Boolean = snapToTicks): Float {
             val norm = (posX / trackWidth.toFloat()).coerceIn(0f, 1f)
             val frac = if (isLtr) norm else 1f - norm
             val raw = (valueRange.start + span * frac).coerceIn(valueRange)
-            return if (snapToTicks) resolveSliderTickSnap(raw, normalizedTicks, valueRange, forceSnap = true) else raw
+            return if (snap) resolveSliderTickSnap(raw, normalizedTicks, valueRange, forceSnap = true) else raw
         }
 
         val isGlassActive by remember(dampedDragAnimation) {
@@ -224,9 +227,12 @@ fun LiquidSlider(
                         }
                         var lastEdge = edgeZone(startValue)
                         var lastTick: Float? = if (snapToTicks) normalizedTicks.firstOrNull { abs(it - startValue) <= edgeEps } else null
-                        var lastNeutral = neutralValue?.let { if (abs(startValue - it) <= span * 0.02f) 0 else if (startValue < it) -1 else 1 } ?: 0
+                        var lastNeutral = currentNeutralValue?.let {
+                            if (abs(startValue - it) <= span * 0.02f) 0 else if (startValue < it) -1 else 1
+                        } ?: 0
                         fun emitSliderDetent(v: Float) {
                             val edge = edgeZone(v)
+                            val neutral = currentNeutralValue
                             if (edge != 0 && edge != lastEdge) {
                                 haptics(LiquidHaptic.ThresholdDetent)
                             } else if (snapToTicks && normalizedTicks.isNotEmpty()) {
@@ -235,8 +241,8 @@ fun LiquidSlider(
                                     haptics(LiquidHaptic.SelectionTick)
                                 }
                                 lastTick = hitTick
-                            } else if (neutralValue != null) {
-                                val side = if (abs(v - neutralValue) <= span * 0.02f) 0 else if (v < neutralValue) -1 else 1
+                            } else if (neutral != null) {
+                                val side = if (abs(v - neutral) <= span * 0.02f) 0 else if (v < neutral) -1 else 1
                                 if (side == 0 && lastNeutral != 0) haptics(LiquidHaptic.SelectionTick)
                                 lastNeutral = side
                             }
@@ -269,7 +275,7 @@ fun LiquidSlider(
                                     }
                                     if (tapToSeek && ((abs(dx) > slop && abs(dx) >= abs(dy)) || heldLongEnough)) {
                                         claimed = true
-                                        startValue = valueAt(down.position.x)
+                                        startValue = valueAt(down.position.x, snap = false)
                                         val raw = resolveSliderDragValue(
                                             startValue, dx, trackWidth.toFloat(), valueRange, isLtr,
                                         )
@@ -386,9 +392,9 @@ fun LiquidSlider(
                 .matchParentSize()
                 .layout { measurable, constraints ->
                     val curScale = dampedDragAnimation.scale.coerceAtLeast(1f)
-                    val velocity = dampedDragAnimation.velocity / 10f
-                    val velX = 1f / (1f - (velocity * 0.45f).fastCoerceIn(-0.18f, 0.18f))
-                    val velY = 1f - (velocity * 0.18f).fastCoerceIn(-0.16f, 0.16f)
+                    val speed = abs(dampedDragAnimation.velocity) / 10f
+                    val velX = 1f + (speed * 0.45f).fastCoerceIn(0f, 0.22f)
+                    val velY = 1f - (speed * 0.18f).fastCoerceIn(0f, 0.16f)
                     val w = (thumbBaseW * curScale * velX).roundToInt().coerceAtLeast(1)
                     val h = (thumbBaseH * curScale * velY).roundToInt().coerceAtLeast(1)
                     val p = measurable.measure(Constraints.fixed(w, h))
@@ -443,7 +449,11 @@ fun LiquidSlider(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(Color.White.copy(alpha = (1f - progress * 1.15f).coerceIn(0f, 1f)))
+                        if (!hasRuntimeShader) {
+                            drawRect(Color.White.copy(alpha = lerp(1f, 0.42f, progress)))
+                        } else {
+                            drawRect(Color.White.copy(alpha = (1f - progress * 1.15f).coerceIn(0f, 1f)))
+                        }
                     }
                 )
         )

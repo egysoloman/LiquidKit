@@ -118,7 +118,10 @@ internal class LiquidModalEntry {
     var content by mutableStateOf<@Composable () -> Unit>({})
 }
 
-internal class LiquidModalMenuEntry(val state: LiquidMenuState) {
+internal class LiquidModalMenuEntry(
+    val state: LiquidMenuState,
+    val parentEntry: LiquidModalEntry? = null,
+) {
     var active by mutableStateOf(false)
     var overlay by mutableStateOf<@Composable BoxScope.(hostOrigin: Offset, maxWidth: Dp, maxHeight: Dp) -> Unit>({ _, _, _ -> })
 }
@@ -144,6 +147,10 @@ internal class LiquidModalRegistry {
 
 internal val LocalLiquidModalRegistry = staticCompositionLocalOf<LiquidModalRegistry?> { null }
 internal val LocalLiquidModalBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+internal val LocalCurrentModalEntry = staticCompositionLocalOf<LiquidModalEntry?> { null }
+internal val LocalLiquidModalDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
+internal val LocalLiquidPopoverDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
+internal val LocalLiquidModalDismissOwner = staticCompositionLocalOf<MutableState<(() -> Unit)?>?> { null }
 
 private val DarkFloatingSheenBrush = Brush.verticalGradient(
     listOf(Color.White.copy(alpha = .03f), Color.Transparent, Color.Black.copy(alpha = .04f)),
@@ -212,7 +219,15 @@ fun LiquidModalHost(modifier: Modifier = Modifier, content: @Composable BoxScope
 
     val insideDragRatio = LocalLiquidGlassTokens.current.press.menuInsideDragRatio
     val gestureMod = registeredMenus.fold(Modifier as Modifier) { acc, entry ->
-        acc.menuGestures(entry.state, insideDragRatio) { hostLayout }
+        acc.menuGestures(
+            entry.state,
+            insideDragRatio,
+            enabled = {
+                val parent = entry.parentEntry
+                if (parent == null) registry.entries.isEmpty()
+                else registry.entries.lastOrNull() === parent
+            },
+        ) { hostLayout }
     }
 
     BoxWithConstraints(
@@ -281,16 +296,27 @@ fun LiquidModalHost(modifier: Modifier = Modifier, content: @Composable BoxScope
             }
             CompositionLocalProvider(LocalLiquidModalBackdrop provides liveModalBackdrop) {
                 registry.menus.forEach { entry ->
-                    key(entry) {
-                        Box(Modifier.matchParentSize()) {
-                            entry.overlay(this, hostOrigin, this@BoxWithConstraints.maxWidth, this@BoxWithConstraints.maxHeight)
+                    if (entry.parentEntry == null) {
+                        key(entry) {
+                            Box(Modifier.matchParentSize()) {
+                                entry.overlay(this, hostOrigin, this@BoxWithConstraints.maxWidth, this@BoxWithConstraints.maxHeight)
+                            }
                         }
                     }
                 }
-                registry.entries.forEach { entry ->
-                    key(entry) {
+                registry.entries.forEach { modalEntry ->
+                    key(modalEntry) {
                         Box(Modifier.matchParentSize()) {
-                            entry.content()
+                            modalEntry.content()
+                        }
+                        registry.menus.forEach { menuEntry ->
+                            if (menuEntry.parentEntry === modalEntry) {
+                                key(menuEntry) {
+                                    Box(Modifier.matchParentSize()) {
+                                        menuEntry.overlay(this, hostOrigin, this@BoxWithConstraints.maxWidth, this@BoxWithConstraints.maxHeight)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -307,21 +333,29 @@ internal fun LiquidModalLayer(
 ) {
     val registry = LocalLiquidModalRegistry.current
     val currentDismiss by rememberUpdatedState(onDismissRequest)
+    val currentContent by rememberUpdatedState(content)
+    val dismissOwner = remember { mutableStateOf<(() -> Unit)?>(null) }
     if (registry != null) {
-        val entry = remember { LiquidModalEntry() }
-        SideEffect {
-            entry.content = {
-                Box(
-                    Modifier.fillMaxSize().onPreviewKeyEvent {
-                        if (it.key == Key.Escape && it.type == KeyEventType.KeyDown) {
-                            currentDismiss()
-                            true
-                        } else {
-                            false
+        val entry = remember {
+            LiquidModalEntry().also { modalEntry ->
+                modalEntry.content = {
+                    Box(
+                        Modifier.fillMaxSize().onPreviewKeyEvent {
+                            if (it.key == Key.Escape && it.type == KeyEventType.KeyDown) {
+                                (dismissOwner.value ?: currentDismiss).invoke()
+                                true
+                            } else {
+                                false
+                            }
+                        },
+                    ) {
+                        CompositionLocalProvider(
+                            LocalCurrentModalEntry provides modalEntry,
+                            LocalLiquidModalDismissOwner provides dismissOwner,
+                        ) {
+                            currentContent(currentDismiss)
                         }
-                    },
-                ) {
-                    content(currentDismiss)
+                    }
                 }
             }
         }
@@ -336,8 +370,19 @@ internal fun LiquidModalLayer(
         ) {
             ConfigureAlertWindow(scrimAlpha)
             SyncLiquidDialogSystemBars(liquidGlassAppearance().dark)
-            Box(Modifier.fillMaxSize()) {
-                content(currentDismiss)
+            Box(
+                Modifier.fillMaxSize().onPreviewKeyEvent {
+                    if (it.key == Key.Escape && it.type == KeyEventType.KeyDown) {
+                        (dismissOwner.value ?: currentDismiss).invoke()
+                        true
+                    } else {
+                        false
+                    }
+                },
+            ) {
+                CompositionLocalProvider(LocalLiquidModalDismissOwner provides dismissOwner) {
+                    currentContent(currentDismiss)
+                }
             }
         }
     }
@@ -472,8 +517,8 @@ fun LiquidSheet(
         val depthEnd = ordered.last().fraction
         SideEffect {
             if (registry != null) {
-                registry.sheetBackgroundDepth = if (closing) 0f
-                else computeSheetBackgroundDepth(fractionAnim.value, depthStart, depthEnd) * revealAnim.value.coerceIn(0f, 1f)
+                registry.sheetBackgroundDepth =
+                    computeSheetBackgroundDepth(fractionAnim.value, depthStart, depthEnd) * revealAnim.value.coerceIn(0f, 1f)
             }
         }
         DisposableEffect(registry) {
@@ -483,12 +528,18 @@ fun LiquidSheet(
         fun finishDismiss() {
             if (closing) return
             closing = true
-            registry?.sheetBackgroundDepth = 0f
             scope.launch {
                 launch { scrimAnim.animateTo(0f, tween(180)) }
                 revealAnim.animateTo(0f, tween(215, easing = FastOutSlowInEasing))
                 dismiss()
             }
+        }
+
+        val dismissOwner = LocalLiquidModalDismissOwner.current
+        DisposableEffect(dismissOwner) {
+            val cb: () -> Unit = { finishDismiss() }
+            dismissOwner?.value = cb
+            onDispose { if (dismissOwner?.value === cb) dismissOwner.value = null }
         }
 
         LaunchedEffect(Unit) {
@@ -748,6 +799,13 @@ fun LiquidActionSheet(
             }
         }
 
+        val dismissOwner = LocalLiquidModalDismissOwner.current
+        DisposableEffect(dismissOwner) {
+            val cb: () -> Unit = { finishDismiss() }
+            dismissOwner?.value = cb
+            onDispose { if (dismissOwner?.value === cb) dismissOwner.value = null }
+        }
+
         LaunchedEffect(Unit) {
             launch { scrimAnim.animateTo(if (hasInWindowHost) sheetTokens.scrimAlpha else 0f, tween(210)) }
             slideAnim.animateTo(1f, sheetTokens.detentSpring.spec)
@@ -771,13 +829,11 @@ fun LiquidActionSheet(
         }
 
         BoxWithConstraints(modifier.fillMaxSize()) {
-            if (hasInWindowHost) {
-                Spacer(
-                    Modifier.matchParentSize()
-                        .background(Color.Black.copy(alpha = scrimAnim.value.coerceIn(0f, 1f)))
-                        .clickable(interactionSource = null, indication = null) { finishDismiss() },
-                )
-            }
+            Spacer(
+                Modifier.matchParentSize()
+                    .background(Color.Black.copy(alpha = if (hasInWindowHost) scrimAnim.value.coerceIn(0f, 1f) else 0f))
+                    .clickable(interactionSource = null, indication = null) { finishDismiss() },
+            )
             val density = LocalDensity.current
             val pressTokens = LocalLiquidGlassTokens.current.press
             val bottomSafePx = with(density) { WindowInsets.navigationBars.getBottom(density).toFloat() }
@@ -929,6 +985,7 @@ fun LiquidActionSheet(
                     if (cancelPressed) pressTokens.engage.spec else pressTokens.release.spec,
                     label = "ActionSheet cancel press",
                 )
+                val cancelOverlayColor = if (appearance.dark) Color.White else Color.Black
                 Box(
                     Modifier.fillMaxWidth().heightIn(min = 52.dp)
                         .onGloballyPositioned { if (it.isAttached) itemBounds[actions.size] = it.boundsInRoot() }
@@ -945,7 +1002,7 @@ fun LiquidActionSheet(
                             cornerRadius = 28.dp,
                             scrimTint = sheetTokens.scrimAlpha * .7f,
                         )
-                        .background(Color.White.copy(alpha = cancelProgress * (if (appearance.dark) .14f else .24f)), LiquidCapsule)
+                        .background(cancelOverlayColor.copy(alpha = cancelProgress * (if (appearance.dark) .14f else .09f)), LiquidCapsule)
                         .semantics {
                             role = Role.Button
                             onClick { finishDismiss(); true }
@@ -997,6 +1054,13 @@ fun LiquidPopover(
             }
         }
 
+        val dismissOwner = LocalLiquidModalDismissOwner.current
+        DisposableEffect(dismissOwner) {
+            val cb: () -> Unit = { finishDismiss() }
+            dismissOwner?.value = cb
+            onDispose { if (dismissOwner?.value === cb) dismissOwner.value = null }
+        }
+
         LaunchedEffect(Unit) { progress.animateTo(1f, sheetTokens.popoverSpring.spec) }
 
         LiquidPredictiveBackHandler(enabled = !closing) { events ->
@@ -1012,81 +1076,91 @@ fun LiquidPopover(
         }
 
         var hostOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
-        var cardWidthPx by remember { mutableIntStateOf(0) }
-        var cardHeightPx by remember { mutableIntStateOf(0) }
+        val density = LocalDensity.current
+        var openUp by remember { mutableStateOf(false) }
+        var lockedOpenUp by remember { mutableStateOf<Boolean?>(null) }
+        val padPx = with(density) { 12.dp.roundToPx() }
+        val gapPx = with(density) { 8.dp.roundToPx() }
+        val shape = RoundedCornerShape(sheetTokens.popoverCorner)
+        val popoverBgBackdrop = rememberLayerBackdrop()
+
         BoxWithConstraints(
             modifier.fillMaxSize()
                 .onGloballyPositioned { if (it.isAttached) hostOrigin = it.positionInRoot() }
                 .clickable(interactionSource = null, indication = null) { finishDismiss() },
         ) {
-            val density = LocalDensity.current
-            val padPx = with(density) { 12.dp.roundToPx() }
-            val gapPx = with(density) { 8.dp.roundToPx() }
-            val maxW = constraints.maxWidth
-            val maxH = constraints.maxHeight
-            val shape = RoundedCornerShape(sheetTokens.popoverCorner)
-
-            var lockedOpenUp by remember { mutableStateOf<Boolean?>(null) }
-            val localAnchor = anchorBoundsInRoot?.translate(-hostOrigin)
-            val openUp = lockedOpenUp ?: if (localAnchor != null && cardHeightPx > 0) {
-                val computed = (maxH - localAnchor.bottom < cardHeightPx + padPx + gapPx) && (localAnchor.top > maxH - localAnchor.bottom)
-                SideEffect { lockedOpenUp = computed }
-                computed
-            } else {
-                false
-            }
-            val posX = if (localAnchor != null && cardWidthPx > 0) {
-                (localAnchor.center.x - cardWidthPx / 2f).roundToInt()
-                    .coerceIn(padPx, (maxW - cardWidthPx - padPx).coerceAtLeast(padPx))
-            } else {
-                ((maxW - cardWidthPx) / 2).coerceAtLeast(padPx)
-            }
-            val posY = if (localAnchor != null && cardHeightPx > 0) {
-                val rawY = if (openUp) (localAnchor.top - cardHeightPx - gapPx).roundToInt()
-                else (localAnchor.bottom + gapPx).roundToInt()
-                rawY.coerceIn(padPx, (maxH - cardHeightPx - padPx).coerceAtLeast(padPx))
-            } else {
-                ((maxH - cardHeightPx) / 2).coerceAtLeast(padPx)
-            }
-
-            val popoverBgBackdrop = rememberLayerBackdrop()
-            Box(
-                Modifier.align(AbsoluteAlignment.TopLeft)
-                    .offset { IntOffset(posX, posY) }
-                    .onGloballyPositioned {
-                        cardWidthPx = it.size.width
-                        cardHeightPx = it.size.height
+            val maxPopoverW = minOf(this.maxWidth - 24.dp, maxWidth)
+            androidx.compose.ui.layout.Layout(
+                modifier = Modifier.fillMaxSize(),
+                content = {
+                    Box(
+                        Modifier
+                            .widthIn(min = 180.dp, max = maxPopoverW)
+                            .graphicsLayer {
+                                val p = progress.value
+                                val scale = if (closing) .88f + .12f * p else .78f + .22f * p
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = if (closing) p.coerceIn(0f, 1f) else (p * 2.1f).coerceIn(0f, 1f)
+                                translationY = (1f - p) * (if (openUp) 8.dp.toPx() else -8.dp.toPx())
+                                transformOrigin = TransformOrigin(.5f, if (openUp) 1f else 0f)
+                            }
+                            .clickable(interactionSource = null, indication = null) { /* absorb clicks on popover card */ },
+                    ) {
+                        Spacer(
+                            Modifier.matchParentSize()
+                                .layerBackdrop(popoverBgBackdrop)
+                                .liquidModalSurface(
+                                    shape,
+                                    backdrop,
+                                    colors,
+                                    elevation = 1f,
+                                    cornerRadius = sheetTokens.popoverCorner,
+                                    blurRadius = blurRadius,
+                                ),
+                        )
+                        CompositionLocalProvider(
+                            LocalLiquidSurfaceBackdrop provides popoverBgBackdrop,
+                            LocalLiquidPopoverDismiss provides ::finishDismiss,
+                        ) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                content = content,
+                            )
+                        }
                     }
-                    .widthIn(min = 180.dp, max = minOf(this@BoxWithConstraints.maxWidth - 24.dp, maxWidth))
-                    .graphicsLayer {
-                        val p = progress.value
-                        val scale = if (closing) .88f + .12f * p else .78f + .22f * p
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = if (closing) p.coerceIn(0f, 1f) else (p * 2.1f).coerceIn(0f, 1f)
-                        translationY = (1f - p) * (if (openUp) 8.dp.toPx() else -8.dp.toPx())
-                        transformOrigin = TransformOrigin(.5f, if (openUp) 1f else 0f)
-                    }
-                    .clickable(interactionSource = null, indication = null) { /* absorb clicks on popover card */ },
-            ) {
-                Spacer(
-                    Modifier.matchParentSize()
-                        .layerBackdrop(popoverBgBackdrop)
-                        .liquidModalSurface(
-                            shape,
-                            backdrop,
-                            colors,
-                            elevation = 1f,
-                            cornerRadius = sheetTokens.popoverCorner,
-                            blurRadius = blurRadius,
-                        ),
-                )
-                CompositionLocalProvider(LocalLiquidSurfaceBackdrop provides popoverBgBackdrop) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        content = content,
-                    )
+                },
+            ) { measurables, constraints ->
+                val loose = constraints.copy(minWidth = 0, minHeight = 0)
+                val card = measurables[0].measure(loose)
+                val hostW = constraints.maxWidth
+                val hostH = constraints.maxHeight
+                val localAnchor = anchorBoundsInRoot?.translate(-hostOrigin)
+                val up = lockedOpenUp ?: if (localAnchor != null) {
+                    val computed = (hostH - localAnchor.bottom < card.height + padPx + gapPx) &&
+                        (localAnchor.top > hostH - localAnchor.bottom)
+                    lockedOpenUp = computed
+                    computed
+                } else {
+                    false
+                }
+                if (openUp != up) openUp = up
+                val posX = if (localAnchor != null) {
+                    (localAnchor.center.x - card.width / 2f).roundToInt()
+                        .coerceIn(padPx, (hostW - card.width - padPx).coerceAtLeast(padPx))
+                } else {
+                    ((hostW - card.width) / 2).coerceAtLeast(padPx)
+                }
+                val posY = if (localAnchor != null) {
+                    val rawY = if (up) (localAnchor.top - card.height - gapPx).roundToInt()
+                    else (localAnchor.bottom + gapPx).roundToInt()
+                    rawY.coerceIn(padPx, (hostH - card.height - padPx).coerceAtLeast(padPx))
+                } else {
+                    ((hostH - card.height) / 2).coerceAtLeast(padPx)
+                }
+                layout(hostW, hostH) {
+                    card.placeRelative(posX, posY)
                 }
             }
         }

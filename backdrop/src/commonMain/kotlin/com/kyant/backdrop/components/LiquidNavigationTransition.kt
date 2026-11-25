@@ -69,7 +69,7 @@ fun <T> LiquidViewTransition(
             when (style) {
                 LiquidViewTransitionStyle.CrossFade -> {
                     val enter = fadeIn(tween(150, easing = motion.pageEasing))
-                    val exit = fadeOut(snap(delayMillis = 150))
+                    val exit = fadeOut(tween(150, easing = motion.pageEasing))
                     (enter togetherWith exit).apply { targetContentZIndex = nextZ }
                 }
                 LiquidViewTransitionStyle.Zoom -> {

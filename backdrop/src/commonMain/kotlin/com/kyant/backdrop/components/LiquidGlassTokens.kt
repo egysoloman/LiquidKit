@@ -17,10 +17,10 @@ import kotlin.math.sqrt
 data class GlassSpring(val damping: Float, val stiffness: Float) {
     init { require(damping > 0f && stiffness > 0f) }
 
-    internal val spec = spring<Float>(damping, stiffness, .0008f)
-    internal val offsetSpec = spring(damping, stiffness, Offset(.05f, .05f))
-    internal val dpSpec = spring(damping, stiffness, 0.1.dp)
-    internal val rectSpec = spring(damping, stiffness, Rect(.05f, .05f, .05f, .05f))
+    val spec = spring<Float>(damping, stiffness, .0008f)
+    val offsetSpec = spring(damping, stiffness, Offset(.05f, .05f))
+    val dpSpec = spring(damping, stiffness, 0.1.dp)
+    val rectSpec = spring(damping, stiffness, Rect(.05f, .05f, .05f, .05f))
 
     /** SwiftUI-equivalent period in seconds derived from Compose stiffness. */
     val response: Float get() = 2f * PI.toFloat() / sqrt(stiffness)
@@ -28,7 +28,7 @@ data class GlassSpring(val damping: Float, val stiffness: Float) {
     /** Alias matching SwiftUI's `dampingFraction` terminology. */
     val dampingFraction: Float get() = damping
 
-    internal fun <T> specWithThreshold(visibilityThreshold: T? = null): SpringSpec<T> =
+    fun <T> specWithThreshold(visibilityThreshold: T? = null): SpringSpec<T> =
         spring(damping, stiffness, visibilityThreshold)
 
     internal fun slowMotionScaled(factor: Int): GlassSpring =

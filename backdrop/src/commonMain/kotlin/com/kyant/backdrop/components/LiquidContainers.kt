@@ -164,10 +164,7 @@ fun LiquidDisclosureGroup(
 ) {
     val rowMinHeight = if (LocalInLiquidForm.current) 30.dp else 44.dp
     val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    var tapFlash by remember { mutableStateOf(false) }
-    LaunchedEffect(tapFlash) { if (tapFlash) { delay(110); tapFlash = false } }
-    val highlighted = pressed || tapFlash
+    val highlighted by rememberSinglePressHighlight(interaction)
     val notifyFormRow = LocalFormRowHighlight.current
     SideEffect { notifyFormRow?.invoke(highlighted) }
     val controls = LocalLiquidGlassTokens.current.controls
@@ -181,7 +178,6 @@ fun LiquidDisclosureGroup(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                 .background(standaloneFill)
                 .clickable(interactionSource = interaction, indication = null, role = Role.Button) {
-                    if (!pressed) tapFlash = true
                     onExpandedChange(!expanded)
                 }
                 .heightIn(min = rowMinHeight),

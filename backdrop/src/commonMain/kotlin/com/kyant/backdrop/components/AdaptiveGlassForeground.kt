@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
@@ -206,8 +207,21 @@ internal fun GlassForeground(modifier: Modifier, content: @Composable BoxScope.(
 
 @Suppress("UNUSED_PARAMETER")
 @Composable
-fun AdaptiveGlassForeground(backdrop: Backdrop, modifier: Modifier = Modifier, tint: Color = Color.Transparent,
-    content: @Composable BoxScope.(Color) -> Unit) = GlassForeground(modifier, content)
+fun AdaptiveGlassForeground(
+    backdrop: Backdrop,
+    modifier: Modifier = Modifier,
+    tint: Color = Color.Transparent,
+    content: @Composable BoxScope.(Color) -> Unit,
+) {
+    val color = if (tint.isSpecified && tint.alpha >= 0.35f) {
+        liquidContentColorFor(tint)
+    } else {
+        liquidGlassAppearance().contentColor
+    }
+    Box(modifier, propagateMinConstraints = true) {
+        CompositionLocalProvider(LocalLiquidContentColor provides color) { content(color) }
+    }
+}
 
 /** Contrast of an explicitly provided solid color, for application-owned accents (aligned with iOS HIG). */
 fun liquidContentColorFor(background: Color): Color = if (background.luminance() > .55f) Color(0xff0d0d0e) else Color.White

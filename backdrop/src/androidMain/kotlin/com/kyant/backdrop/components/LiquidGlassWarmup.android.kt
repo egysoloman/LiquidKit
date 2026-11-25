@@ -16,6 +16,8 @@ import android.util.Log
 import com.kyant.backdrop.interaction.InteractiveHighlightShaderString
 import com.kyant.backdrop.internal.RoundedRectRefractionShaderString
 import com.kyant.backdrop.internal.RoundedRectRefractionWithDispersionShaderString
+import com.kyant.backdrop.morph.LiquidMenuContentShader
+import com.kyant.backdrop.morph.LiquidMorphShaderString
 import java.util.concurrent.atomic.AtomicBoolean
 
 private val gpuWarmupStarted = AtomicBoolean(false)
@@ -62,7 +64,10 @@ private fun warmUpOnHardwareRenderer() {
 
         val effectNodes = mutableListOf<RenderNode>()
         fun addEffect(name: String, effectFactory: () -> RenderEffect) {
-            runCatching { makeEffectNode(name, effectFactory()) }.getOrNull()?.let { effectNodes += it }
+            runCatching { makeEffectNode(name, effectFactory()) }
+                .onFailure { Log.w("LiquidPerf", "Warmup effect failed for $name: ${it.message}") }
+                .getOrNull()
+                ?.let { effectNodes += it }
         }
 
         addEffect("blur") {
@@ -175,6 +180,64 @@ private fun warmUpOnHardwareRenderer() {
             }
             RenderEffect.createRuntimeShaderEffect(s, "content")
         }
+        addEffect("liquidGlassTone") {
+            val s = RuntimeShader(LiquidGlassToneShaderString).apply {
+                setFloatUniform("dark", 0f)
+                setFloatUniform("glassOpacity", 0.5f)
+                setFloatUniform("role", 0f)
+            }
+            RenderEffect.createRuntimeShaderEffect(s, "content")
+        }
+        addEffect("tabDiffusionMask") {
+            val s = RuntimeShader(TabDiffusionMask).apply {
+                setFloatUniform("rect", 4f, 4f, 3f, 3f)
+                setFloatUniform("coverage", 0.5f, 0.85f)
+                setFloatUniform("feather", 2f)
+            }
+            RenderEffect.createRuntimeShaderEffect(s, "content")
+        }
+        addEffect("liquidMorph") {
+            val s = RuntimeShader(LiquidMorphShaderString).apply {
+                setFloatUniform("offset", 0f, 0f)
+                setFloatUniform("pillRect", 4f, 4f, 3f, 3f)
+                setFloatUniform("pillRadius", 3f)
+                setFloatUniform("pillActive", 1f)
+                setFloatUniform("bodyRect", 4f, 4f, 3f, 3f)
+                setFloatUniform("bodyRadius", 3f)
+                setFloatUniform("bodyCrownBias", 0f)
+                setFloatUniform("bodyContour", 0f, 0f, 1f, 0f)
+                setFloatUniform("bodyActive", 1f)
+                setFloatUniform("shapeCenter", 4f, 4f)
+                setFloatUniform("smoothK", 2f)
+                setFloatUniform("pressGlow", 0.5f)
+                setFloatUniform("pressGlowPos", 4f, 4f)
+                setFloatUniform("pressGlowRadius", 4f)
+                setFloatUniform("refraction", 1f)
+                setFloatUniform("bevelWidth", 3f)
+                setFloatUniform("refractionAmount", 4f)
+                setFloatUniform("dispersion", 0.5f)
+                setFloatUniform("specular", 1.25f)
+                setFloatUniform("pixelDensity", 3f)
+                setFloatUniform("tintAlpha", 0.2f)
+                setFloatUniform("pale", 1f)
+                setFloatUniform("glassOpacity", 0.5f)
+                setFloatUniform("materialProgress", 1f)
+                setColorUniform("expandedSurface", Color.TRANSPARENT)
+                setColorUniform("collapsedSurface", Color.TRANSPARENT)
+            }
+            RenderEffect.createRuntimeShaderEffect(s, "content")
+        }
+        addEffect("liquidMenuContent") {
+            val s = RuntimeShader(LiquidMenuContentShader).apply {
+                setFloatUniform("halfSize", 4f, 4f)
+                setFloatUniform("radius", 3f)
+                setFloatUniform("contour", 0f, 0f, 1f, 0f)
+                setFloatUniform("crownBias", 0f)
+                setFloatUniform("width", 4f)
+                setFloatUniform("displacement", 2f)
+            }
+            RenderEffect.createRuntimeShaderEffect(s, "content")
+        }
 
         val rootCanvas = root.beginRecording(8, 8)
         for (node in effectNodes) {
@@ -192,7 +255,7 @@ private fun warmUpOnHardwareRenderer() {
             }
             paint.shader = bevel
             rootCanvas.drawRect(0f, 0f, 8f, 8f, paint)
-        }
+        }.onFailure { Log.w("LiquidPerf", "Warmup draw failed for TabBevelShader: ${it.message}") }
         for (layered in floatArrayOf(0f, 1f)) {
             runCatching {
                 val rim = RuntimeShader(RimShader).apply {
@@ -211,7 +274,7 @@ private fun warmUpOnHardwareRenderer() {
                 }
                 paint.shader = rim
                 rootCanvas.drawRect(0f, 0f, 8f, 8f, paint)
-            }
+            }.onFailure { Log.w("LiquidPerf", "Warmup draw failed for RimShader($layered): ${it.message}") }
         }
         runCatching {
             val sh = RuntimeShader(ShadowShader).apply {
@@ -225,7 +288,7 @@ private fun warmUpOnHardwareRenderer() {
             }
             paint.shader = sh
             rootCanvas.drawRect(0f, 0f, 8f, 8f, paint)
-        }
+        }.onFailure { Log.w("LiquidPerf", "Warmup draw failed for ShadowShader: ${it.message}") }
         runCatching {
             val touch = RuntimeShader(InteractiveHighlightShaderString).apply {
                 setFloatUniform("size", 8f, 8f)
@@ -235,7 +298,17 @@ private fun warmUpOnHardwareRenderer() {
             }
             paint.shader = touch
             rootCanvas.drawRect(0f, 0f, 8f, 8f, paint)
-        }
+        }.onFailure { Log.w("LiquidPerf", "Warmup draw failed for InteractiveHighlightShader: ${it.message}") }
+        runCatching {
+            val mesh = RuntimeShader(MeshGradient3x3Agsl).apply {
+                setFloatUniform("resolution", 8f, 8f)
+                for (i in 0..8) {
+                    setFloatUniform("c$i", 0.2f, 0.4f, 0.8f, 1f)
+                }
+            }
+            paint.shader = mesh
+            rootCanvas.drawRect(0f, 0f, 8f, 8f, paint)
+        }.onFailure { Log.w("LiquidPerf", "Warmup draw failed for MeshGradient3x3Agsl: ${it.message}") }
         root.endRecording()
 
         renderer.setContentRoot(root)

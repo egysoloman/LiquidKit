@@ -110,11 +110,11 @@ internal fun appendFusionNeckPath(
     if (length < .001f) return
     val along = (to - from) / length
     val normal = Offset(-along.y, along.x)
-    val limit = maxOf(a.maxDimension, b.maxDimension) + reach
+    val limit = maxOf(a.minDimension, b.minDimension) * 0.6f + reach
     fun border(p: Offset, sign: Float): Offset {
         var lo = 0f
         var hi = limit
-        repeat(5) {
+        repeat(8) {
             val m = (lo + hi) * 0.5f
             if (fusedPairDistance(p + normal * (sign * m), a, b, spacing) <= 0f) lo = m else hi = m
         }
@@ -164,60 +164,6 @@ internal fun appendFusionNeckPath(
         count++
     }
     finish()
-}
-
-internal fun buildFusionNeckPath(
-    a: Rect,
-    b: Rect,
-    spacing: Float,
-    densityPx: Float,
-    distanceFn: (Offset) -> Float,
-): Path {
-    val reach = spacing * 3f
-    if (reach <= 0f || !a.inflate(reach).overlaps(b)) return Path()
-    fun facing(r: Rect, other: Rect): Offset {
-        val extent = (r.maxDimension - r.minDimension) / 2f
-        val d = other.center - r.center
-        return r.center + if (r.width >= r.height) Offset(d.x.coerceIn(-extent, extent), 0f)
-        else Offset(0f, d.y.coerceIn(-extent, extent))
-    }
-    val from = facing(a, b)
-    val to = facing(b, a)
-    val length = (to - from).getDistance()
-    if (length < .001f) return Path()
-    val along = (to - from) / length
-    val normal = Offset(-along.y, along.x)
-    val limit = maxOf(a.maxDimension, b.maxDimension) + reach
-    fun border(p: Offset, sign: Float): Offset {
-        var lo = 0f
-        var hi = limit
-        repeat(8) {
-            val m = (lo + hi) / 2f
-            if (distanceFn(p + normal * (sign * m)) <= 0f) lo = m else hi = m
-        }
-        return p + normal * (sign * (lo + hi) / 2f)
-    }
-    val steps = ceil(length / (3.0f * densityPx)).toInt().coerceIn(8, 22)
-    val neck = Path()
-    val lower = mutableListOf<Offset>()
-    fun finish() {
-        if (lower.isEmpty()) return
-        for (i in lower.indices.reversed()) {
-            val p = lower[i]
-            neck.lineTo(p.x, p.y)
-        }
-        neck.close()
-        lower.clear()
-    }
-    for (i in 0..steps) {
-        val p = from + along * (length * i / steps)
-        if (distanceFn(p) > 0f) { finish(); continue }
-        val upper = border(p, -1f)
-        if (lower.isEmpty()) neck.moveTo(upper.x, upper.y) else neck.lineTo(upper.x, upper.y)
-        lower += border(p, 1f)
-    }
-    finish()
-    return neck
 }
 
 internal fun Path.addLiquidCapsule(rect: Rect) {
@@ -279,7 +225,8 @@ internal fun Path.addLiquidCapsule(rect: Rect) {
 }
 
 private const val SingleCapsuleOutlineCacheCap = 32
-private val singleCapsuleOutlineCache = mutableMapOf<Long, Outline>()
+@kotlin.concurrent.Volatile
+private var singleCapsuleOutlineCache: Map<Long, Outline> = emptyMap()
 
 internal data class GlassCapsuleShape(
     val first: Rect? = null, val second: Rect? = null, val spacing: Float = 0f,
@@ -289,12 +236,12 @@ internal data class GlassCapsuleShape(
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         if (first == null && second == null) {
             val key = (size.width.toRawBits().toLong() shl 32) or (size.height.toRawBits().toLong() and 0xffffffffL)
-            singleCapsuleOutlineCache[key]?.let { return it }
+            val snap = singleCapsuleOutlineCache
+            snap[key]?.let { return it }
             val built = Outline.Generic(Path().apply { addLiquidCapsule(Rect(Offset.Zero, size)) })
-            if (singleCapsuleOutlineCache.size >= SingleCapsuleOutlineCacheCap) {
-                singleCapsuleOutlineCache.clear()
-            }
-            singleCapsuleOutlineCache[key] = built
+            val next = if (snap.size >= SingleCapsuleOutlineCacheCap) HashMap<Long, Outline>(4) else HashMap(snap)
+            next[key] = built
+            singleCapsuleOutlineCache = next
             return built
         }
         val a = firstRect(size)

@@ -10,15 +10,23 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.components.*
+import com.kyant.backdrop.morph.LiquidMorphConfig
+import com.kyant.backdrop.morph.LiquidMorphContainer
+import kotlin.math.min
 
 typealias LiquidKitActionStyle = LiquidActionStyle
 typealias LiquidKitSymbol = LiquidSymbol
@@ -38,6 +46,8 @@ typealias LiquidKitTab<Key> = LiquidTab<Key>
 typealias LiquidKitMenuItem = LiquidMenuItem
 typealias LiquidKitMenuState = LiquidMenuState
 typealias LiquidKitMenuPresentation = LiquidMenuPresentation
+typealias LiquidKitMenuActivation = LiquidMenuActivation
+typealias LiquidKitMorphConfig = LiquidMorphConfig
 typealias LiquidKitAlertRole = LiquidAlertRole
 typealias LiquidKitAlertAction = LiquidAlertAction
 typealias LiquidKitSheetDetent = LiquidSheetDetent
@@ -58,10 +68,15 @@ typealias LiquidKitChartSeriesPoint = LiquidChartSeriesPoint
 typealias LiquidKitPieSlice = LiquidPieSlice
 
 val LiquidKitCapsule: Shape = LiquidCapsule
+val LocalLiquidKitContentColor = LocalLiquidContentColor
 
 @Composable
-fun LiquidKitIcon(symbol: LiquidKitSymbol, tint: Color = LocalLiquidContentColor.current, modifier: Modifier = Modifier) =
-    LiquidIcon(symbol, tint, modifier)
+fun LiquidKitIcon(
+    symbol: LiquidKitSymbol,
+    tint: Color = LocalLiquidContentColor.current,
+    modifier: Modifier = Modifier,
+    pressedColor: Color = tint,
+) = LiquidIcon(symbol, tint, modifier, pressedColor)
 
 @Composable
 fun LiquidKitGlassSurface(
@@ -611,9 +626,22 @@ fun <T : Any> LiquidKitSwipeBackNavigation(
     onNavigateBack: (T) -> Unit,
     modifier: Modifier = Modifier,
     predictiveBackEnabled: Boolean = true,
+    blankSwipeEnabled: Boolean = true,
     onVisualTargetChange: ((T) -> Unit)? = null,
     content: @Composable (T) -> Unit,
-) = LiquidSwipeBackNavigation(page, previousPage, depth, contentKey, onNavigateBack, modifier, predictiveBackEnabled, onVisualTargetChange, content)
+) = LiquidSwipeBackNavigation(page, previousPage, depth, contentKey, onNavigateBack, modifier, predictiveBackEnabled, blankSwipeEnabled, onVisualTargetChange, content)
+
+@Composable
+fun LiquidKitSwipeActions(
+    rowKey: Any,
+    modifier: Modifier = Modifier,
+    leading: List<LiquidKitSwipeAction> = emptyList(),
+    trailing: List<LiquidKitSwipeAction> = emptyList(),
+    allowsFullSwipeLeading: Boolean = true,
+    allowsFullSwipeTrailing: Boolean = true,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) = LiquidSwipeActions(rowKey, modifier, leading, trailing, allowsFullSwipeLeading, allowsFullSwipeTrailing, enabled, content)
 
 @Composable
 fun LiquidKitNavBarSlot(
@@ -686,6 +714,10 @@ fun LiquidKitSheet(
 ) = LiquidSheet(onDismissRequest, modifier, backdrop, title, doneLabel, tint, detents, initialDetent, colors, content)
 
 @Composable
+fun Modifier.liquidKitPopoverAnchor(bounds: MutableState<Rect?>): Modifier =
+    liquidPopoverAnchor(bounds)
+
+@Composable
 fun LiquidKitPopover(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
@@ -696,6 +728,53 @@ fun LiquidKitPopover(
     blurRadius: Dp? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) = LiquidPopover(onDismissRequest, modifier, anchorBoundsInRoot, backdrop, colors, maxWidth, blurRadius, content)
+
+@Composable
+fun LiquidKitMorphContainer(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    collapsedSize: DpSize,
+    expandedSize: DpSize,
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop = LocalLiquidKitBackdrop.current,
+    collapsedCornerRadius: Dp = min(collapsedSize.width.value, collapsedSize.height.value).dp * 0.5f,
+    expandedCornerRadius: Dp = 32.dp,
+    config: LiquidKitMorphConfig = LiquidKitMorphConfig(),
+    slowMo: Boolean = false,
+    handleSurfaceTap: Boolean = true,
+    initialExpanded: Boolean = expanded,
+    surfaceTouchEnabled: Boolean = true,
+    onSourceRestored: (() -> Unit)? = null,
+    layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
+    onDrawSurface: (DrawScope.() -> Unit)? = null,
+    sourceAnchorInRoot: Rect? = null,
+    elasticStretchPx: Offset = Offset.Zero,
+    elasticCenterPx: Offset = Offset.Zero,
+    collapsedContent: @Composable BoxScope.() -> Unit,
+    expandedContent: @Composable BoxScope.() -> Unit,
+) = LiquidMorphContainer(
+    expanded = expanded,
+    onExpandedChange = onExpandedChange,
+    backdrop = backdrop,
+    collapsedSize = collapsedSize,
+    expandedSize = expandedSize,
+    modifier = modifier,
+    collapsedCornerRadius = collapsedCornerRadius,
+    expandedCornerRadius = expandedCornerRadius,
+    config = config,
+    slowMo = slowMo,
+    handleSurfaceTap = handleSurfaceTap,
+    initialExpanded = initialExpanded,
+    surfaceTouchEnabled = surfaceTouchEnabled,
+    onSourceRestored = onSourceRestored,
+    layerBlock = layerBlock,
+    onDrawSurface = onDrawSurface,
+    sourceAnchorInRoot = sourceAnchorInRoot,
+    elasticStretchPx = elasticStretchPx,
+    elasticCenterPx = elasticCenterPx,
+    collapsedContent = collapsedContent,
+    expandedContent = expandedContent,
+)
 
 @Composable
 fun LiquidKitBadge(
@@ -747,7 +826,7 @@ fun LiquidKitMeshGradient(
     height: Int,
     colors: List<Color>,
     modifier: Modifier = Modifier,
-    subdivisions: Int = 18,
+    subdivisions: Int = 36,
 ) = LiquidMeshGradient(width, height, colors, modifier, subdivisions)
 
 @Composable
@@ -837,7 +916,7 @@ fun rememberLiquidKitMenuState(onSelect: (LiquidKitMenuItem) -> Unit): LiquidKit
 
 fun Modifier.liquidKitMenuTrigger(
     state: LiquidKitMenuState,
-    activation: LiquidMenuActivation = LiquidMenuActivation.Press,
+    activation: LiquidKitMenuActivation = LiquidKitMenuActivation.Press,
     beforeOpen: () -> Unit = {},
     onShortTap: () -> Unit = {},
     onHoldChange: (Boolean) -> Unit = {},

@@ -270,15 +270,9 @@ fun LiquidSegmentedPicker(
                         trackWidthPx.toFloat(),
                         options.size,
                     ).roundToInt().coerceIn(0, options.lastIndex)
-                    // Grabbing the currently selected segment locks immediately and tracks X regardless of Y excursion;
-                    // tapping another segment waits for movement or 115ms hold so quick vertical flicks still scroll.
-                    var claimed = downIdx == currentSelectedIndex
+                    // Disambiguate vertical scrolling before claiming/consuming drag even when touching the active segment.
+                    var claimed = false
                     var lastHoverIdx = downIdx
-                    tracking = claimed
-                    if (claimed) {
-                        finger = downIdx.toFloat()
-                        down.consume()
-                    }
                     try {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -292,6 +286,7 @@ fun LiquidSegmentedPicker(
                             if (!claimed && ((dx > slop && dx >= dy) || heldLongEnough)) {
                                 claimed = true
                                 tracking = true
+                                if (downIdx == currentSelectedIndex) finger = downIdx.toFloat()
                             }
                             if (claimed) {
                                 val lx = logicalX(p.position.x)
@@ -409,6 +404,7 @@ fun LiquidSegmentedPicker(
             }
         }
 
+        val supportsRuntimeShader = remember { isRuntimeShaderSupported() }
         // Layer 2: Luminous Floating Liquid Glass Lens rendered OVER the track during press / drag / tap travel.
         if (trackWidthPx > 0 && activeGlass > .01f) {
             Spacer(
@@ -454,7 +450,11 @@ fun LiquidSegmentedPicker(
                         innerShadow = null,
                         onDrawSurface = {
                             val g = activeGlass
-                            if (!dark) drawRect(Color.White.copy(alpha = .05f * g))
+                            if (!supportsRuntimeShader) {
+                                drawRect(restingThumbFill.copy(alpha = androidx.compose.ui.util.lerp(.96f, .45f, g)))
+                            } else if (!dark) {
+                                drawRect(Color.White.copy(alpha = .05f * g))
+                            }
                         },
                     ),
             )
@@ -463,7 +463,6 @@ fun LiquidSegmentedPicker(
         // Layer 3: Labels rendered cleanly ONCE (unscaled outside lens, refracted + chromatic inside lens).
         val inkLayer = rememberGraphicsLayer()
         val lensInk = rememberGraphicsLayer()
-        val supportsRuntimeShader = remember { isRuntimeShaderSupported() }
         val inkShaderHolder = remember { arrayOfNulls<RuntimeShader>(1) }
         val tabTokens = tokens.tabs
         Row(
@@ -596,12 +595,16 @@ fun LiquidStepper(
 
     var minusHeld by remember { mutableStateOf(false) }
     var plusHeld by remember { mutableStateOf(false) }
+    var minusDidRepeat by remember { mutableStateOf(false) }
+    var plusDidRepeat by remember { mutableStateOf(false) }
     val haptics = rememberLiquidHaptics()
 
     LaunchedEffect(minusHeld, range) {
         if (!minusHeld) return@LaunchedEffect
+        minusDidRepeat = false
         delay(controls.stepperRepeatDelayMillis)
         while (minusHeld && currentValue > range.first) {
+            minusDidRepeat = true
             currentOnChange((currentValue - 1).coerceAtLeast(range.first))
             haptics(LiquidHaptic.SelectionTick)
             delay(controls.stepperRepeatIntervalMillis)
@@ -609,8 +612,10 @@ fun LiquidStepper(
     }
     LaunchedEffect(plusHeld, range) {
         if (!plusHeld) return@LaunchedEffect
+        plusDidRepeat = false
         delay(controls.stepperRepeatDelayMillis)
         while (plusHeld && currentValue < range.last) {
+            plusDidRepeat = true
             currentOnChange((currentValue + 1).coerceAtMost(range.last))
             haptics(LiquidHaptic.SelectionTick)
             delay(controls.stepperRepeatIntervalMillis)
@@ -639,6 +644,7 @@ fun LiquidStepper(
                 ink = colors.ink,
                 highlightColor = pressColor,
                 highlightAlpha = minusHighlight,
+                didRepeat = { minusDidRepeat },
                 onHeldChange = { minusHeld = it },
                 onTap = {
                     if (currentValue > range.first) {
@@ -660,6 +666,7 @@ fun LiquidStepper(
                 ink = colors.ink,
                 highlightColor = pressColor,
                 highlightAlpha = plusHighlight,
+                didRepeat = { plusDidRepeat },
                 onHeldChange = { plusHeld = it },
                 onTap = {
                     if (currentValue < range.last) {
@@ -682,14 +689,19 @@ private fun StepperHalfButton(
     ink: Color,
     highlightColor: Color,
     highlightAlpha: Float,
+    didRepeat: () -> Boolean,
     onHeldChange: (Boolean) -> Unit,
     onTap: () -> Unit,
     motion: com.kyant.backdrop.interaction.LiquidPressMotion,
     modifier: Modifier = Modifier,
 ) {
     val currentEnabled by rememberUpdatedState(enabled)
+    val currentDidRepeat by rememberUpdatedState(didRepeat)
     val currentOnTap by rememberUpdatedState(onTap)
     val currentOnHeldChange by rememberUpdatedState(onHeldChange)
+    LaunchedEffect(enabled) {
+        if (!enabled) currentOnHeldChange(false)
+    }
     Box(
         modifier
             .background(highlightColor.copy(alpha = highlightColor.alpha * highlightAlpha))
@@ -707,10 +719,10 @@ private fun StepperHalfButton(
                             val p = event.changes.firstOrNull { it.id == down.id } ?: break
                             val inside = p.position.x in 0f..size.width.toFloat() &&
                                 p.position.y in 0f..size.height.toFloat()
-                            currentOnHeldChange(p.pressed && inside)
+                            currentOnHeldChange(currentEnabled && p.pressed && inside)
                             if (!p.pressed) {
                                 completed = inside
-                                if (inside && p.uptimeMillis - down.uptimeMillis < 420L) {
+                                if (inside && !p.isConsumed && !currentDidRepeat()) {
                                     currentOnTap()
                                     triggered = true
                                 }
@@ -740,7 +752,7 @@ private fun StepperHalfButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        val glyphAlpha = if (enabled) 1f else .30f
+        val glyphAlpha by animateFloatAsState(if (enabled) 1f else .30f, tween(140), label = "Stepper glyph alpha")
         Canvas(Modifier.size(14.dp)) {
             val stroke = 1.65.dp.toPx()
             val cy = size.height * .5f
@@ -767,14 +779,15 @@ fun LiquidGauge(
     brush: Brush? = null,
     trackColor: Color = Color.Unspecified,
 ) {
-    val fraction = if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
+    val rawFraction = if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
+    val fraction by animateFloatAsState(rawFraction, GlassSpring.smooth(0.28f).spec, label = "Circular gauge value")
     val startAngle = if (style == LiquidGaugeStyle.CircularCapacity) -90f else 135f
     val sweepTotal = if (style == LiquidGaugeStyle.CircularCapacity) 360f else 270f
     val activeBrush = brush ?: SolidColor(tint)
     val resolvedTrack = if (trackColor.isSpecified) trackColor
     else colors.ink.copy(alpha = if (liquidGlassAppearance().dark) .20f else .12f)
     Box(modifier.size(64.dp).semantics(mergeDescendants = true) {
-        progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+        progressBarRangeInfo = ProgressBarRangeInfo(rawFraction, 0f..1f)
     }, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize().padding(4.dp)) {
             val stroke = 6.dp.toPx()
@@ -782,7 +795,7 @@ fun LiquidGauge(
             val extent = Size(size.width - stroke, size.height - stroke)
             val pen = Stroke(stroke, cap = StrokeCap.Round)
             drawArc(resolvedTrack, startAngle, sweepTotal, false, origin, extent, style = pen)
-            if (fraction > 0f) drawArc(activeBrush, startAngle, sweepTotal * fraction, false, origin, extent, style = pen)
+            if (fraction > 0.001f) drawArc(activeBrush, startAngle, sweepTotal * fraction, false, origin, extent, style = pen)
         }
         BasicText("${(fraction * 100).roundToInt()}%", style = TextStyle(colors.ink, 13.sp, FontWeight.SemiBold))
     }
@@ -801,14 +814,15 @@ fun LiquidLinearGauge(
     trackHeight: Dp = 8.dp,
     trackColor: Color = Color.Unspecified,
 ) {
-    val fraction = if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
+    val rawFraction = if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
+    val fraction by animateFloatAsState(rawFraction, GlassSpring.smooth(0.28f).spec, label = "Linear gauge value")
     val shownValue = valueLabel ?: "${(fraction * 100).roundToInt()}%"
     val activeBrush = brush ?: SolidColor(tint)
     val resolvedTrack = if (trackColor.isSpecified) trackColor
     else colors.ink.copy(alpha = if (liquidGlassAppearance().dark) .20f else .12f)
     Column(
         modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-            progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+            progressBarRangeInfo = ProgressBarRangeInfo(rawFraction, 0f..1f)
         },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -817,9 +831,7 @@ fun LiquidLinearGauge(
             BasicText(label, style = TextStyle(colors.ink, 15.sp))
         }
         Box(Modifier.fillMaxWidth().height(trackHeight).clip(LiquidCapsule).background(resolvedTrack)) {
-            if (fraction > 0f) {
-                Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(LiquidCapsule).background(activeBrush))
-            }
+            Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(LiquidCapsule).background(activeBrush))
         }
         if (shownValue.isNotEmpty()) {
             BasicText(shownValue, style = TextStyle(colors.ink, 15.sp, FontWeight.Medium))
@@ -940,8 +952,9 @@ fun LiquidWheelPicker(
     var isDragging by remember { mutableStateOf(false) }
 
     LaunchedEffect(index, options.size) {
-        if (!isDragging && !position.isRunning && abs(position.value - index.toFloat()) > 0.01f) {
-            position.snapTo(index.toFloat())
+        val clampedTarget = index.coerceIn(0, (options.size - 1).coerceAtLeast(0)).toFloat()
+        if (!isDragging && abs(position.value - clampedTarget) > 0.01f) {
+            position.animateTo(clampedTarget, snapSpring)
         }
     }
 
@@ -977,25 +990,27 @@ fun LiquidWheelPicker(
                                 // Dragging UP (negative y) moves items up and increases selected index.
                                 val velRows = -vyPx / rowHeightPx
                                 val curPos = position.value
-                                val plan = resolveWheelFlingTarget(curPos, velRows, maxIdx)
                                 isDragging = false
-                                scope.launch {
-                                    if (plan.overshootTarget != null) {
-                                        position.animateTo(
-                                            plan.overshootTarget,
-                                            tween(130, easing = FastOutSlowInEasing),
-                                        )
-                                        position.animateTo(plan.settleIndex.toFloat(), settleSpring)
-                                    } else {
-                                        val isOverscrolled = curPos < -0.02f || curPos > maxIdx + 0.02f
-                                        position.animateTo(
-                                            plan.settleIndex.toFloat(),
-                                            if (isOverscrolled) settleSpring else snapSpring,
-                                            initialVelocity = velRows.coerceIn(-12f, 12f),
-                                        )
-                                    }
-                                    currentOptions.getOrNull(plan.settleIndex)?.let { chosen ->
-                                        if (plan.settleIndex != currentSelectedIndex) callback(chosen)
+                                if (dragged || abs(curPos - curPos.roundToInt()) > 0.01f) {
+                                    val plan = resolveWheelFlingTarget(curPos, velRows, maxIdx)
+                                    scope.launch {
+                                        if (plan.overshootTarget != null) {
+                                            position.animateTo(
+                                                plan.overshootTarget,
+                                                tween(130, easing = FastOutSlowInEasing),
+                                            )
+                                            position.animateTo(plan.settleIndex.toFloat(), settleSpring)
+                                        } else {
+                                            val isOverscrolled = curPos < -0.02f || curPos > maxIdx + 0.02f
+                                            position.animateTo(
+                                                plan.settleIndex.toFloat(),
+                                                if (isOverscrolled) settleSpring else snapSpring,
+                                                initialVelocity = velRows.coerceIn(-12f, 12f),
+                                            )
+                                        }
+                                        currentOptions.getOrNull(plan.settleIndex)?.let { chosen ->
+                                            if (plan.settleIndex != currentSelectedIndex) callback(chosen)
+                                        }
                                     }
                                 }
                                 if (dragged) change.consume()

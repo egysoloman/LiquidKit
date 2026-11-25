@@ -50,6 +50,7 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.isRuntimeShaderSupported
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -170,6 +171,7 @@ fun LiquidToggle(
         animationSpec = tween(durationMillis = 150),
         label = "Toggle track color",
     )
+    val hasRuntimeShader = remember { isRuntimeShaderSupported() }
     val trackBackdrop = rememberLayerBackdrop()
     val combinedThumbBackdrop = rememberCombinedBackdrop(effectiveBackdrop, trackBackdrop)
     val isGlassActive by remember {
@@ -184,13 +186,15 @@ fun LiquidToggle(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, PointerEventPass.Initial)
                     if (down.isConsumed) return@awaitEachGesture
-                    down.consume()
                     scope.launch { pressAnim.animateTo(1f, pressEngageSpring) }
 
                     val startFrac = valueAnim.value.coerceIn(0f, 1f)
                     var totalDx = 0f
+                    var totalDy = 0f
                     var didDrag = false
+                    var committed = false
                     var lastX = down.position.x
+                    var lastY = down.position.y
                     var lastTime = down.uptimeMillis
                     var currentFrac = startFrac
 
@@ -198,15 +202,24 @@ fun LiquidToggle(
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val p = event.changes.firstOrNull { it.id == down.id } ?: break
-                            p.consume()
                             val stepDx = p.position.x - lastX
+                            val stepDy = p.position.y - lastY
                             val dt = (p.uptimeMillis - lastTime).coerceAtLeast(1L)
                             lastX = p.position.x
+                            lastY = p.position.y
                             lastTime = p.uptimeMillis
                             totalDx += stepDx
-                            if (abs(totalDx) > touchSlop * 0.65f) didDrag = true
+                            totalDy += stepDy
+                            if (!didDrag && abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx) * 1.15f) {
+                                // Yield immediately to ancestor vertical scroll container without toggling.
+                                break
+                            }
+                            if (abs(totalDx) > touchSlop * 0.65f && abs(totalDx) >= abs(totalDy)) {
+                                didDrag = true
+                            }
 
                             if (didDrag) {
+                                p.consume()
                                 val signedDelta = (if (isLtr) totalDx else -totalDx) / dragWidth
                                 val raw = startFrac + signedDelta
                                 // Soft rubber-band overhang past 0 and 1 just like iOS 27 UISwitch.
@@ -228,6 +241,7 @@ fun LiquidToggle(
                             if (!p.pressed) {
                                 velocityPx = 0f
                                 if (didDrag) {
+                                    committed = true
                                     val next = resolveToggleTrackActive(currentFrac.coerceIn(0f, 1f), checked())
                                     if (next != trackActive) haptics(LiquidHaptic.ToggleFlip)
                                     trackActive = next
@@ -238,7 +252,9 @@ fun LiquidToggle(
                                     } else {
                                         change(next)
                                     }
-                                } else {
+                                } else if (!p.isConsumed && abs(totalDx) <= touchSlop && abs(totalDy) <= touchSlop) {
+                                    committed = true
+                                    p.consume()
                                     val next = !checked()
                                     trackActive = next
                                     dragCommitPending = null
@@ -250,6 +266,11 @@ fun LiquidToggle(
                         }
                     } finally {
                         velocityPx = 0f
+                        if (!committed) {
+                            val current = checked()
+                            trackActive = current
+                            scope.launch { valueAnim.animateTo(if (current) 1f else 0f, settleSpring) }
+                        }
                         scope.launch { pressAnim.animateTo(0f, pressReleaseSpring) }
                     }
                 }
@@ -341,10 +362,14 @@ fun LiquidToggle(
                     innerShadow = null,
                     onDrawSurface = {
                         val p = effectivePress()
-                        // Solid white at rest -> crystal clear refracting liquid glass when pressed (zero horizontal bars).
-                        drawRect(Color.White.copy(alpha = (1f - p * 1.15f).coerceIn(0f, 1f)))
-                        if (p > 0.02f) {
-                            drawRect(Color.White.copy(alpha = (if (isLightTheme) .06f else .04f) * p))
+                        if (!hasRuntimeShader) {
+                            drawRect(Color.White.copy(alpha = lerp(1f, 0.40f, p)))
+                        } else {
+                            // Solid white at rest -> crystal clear refracting liquid glass when pressed (zero horizontal bars).
+                            drawRect(Color.White.copy(alpha = (1f - p * 1.15f).coerceIn(0f, 1f)))
+                            if (p > 0.02f) {
+                                drawRect(Color.White.copy(alpha = (if (isLightTheme) .06f else .04f) * p))
+                            }
                         }
                     },
                 ),

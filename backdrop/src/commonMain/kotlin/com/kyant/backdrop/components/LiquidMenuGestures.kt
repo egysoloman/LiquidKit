@@ -138,11 +138,13 @@ internal fun Modifier.registerMenuTrigger(
 internal fun Modifier.menuGestures(
     state: LiquidMenuState,
     insideDragRatio: Float = GlassPressTokens().menuInsideDragRatio,
+    enabled: () -> Boolean = { true },
     host: () -> LayoutCoordinates?,
 ): Modifier =
     pointerInput(state, insideDragRatio) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (!enabled() && !state.expanded) return@awaitEachGesture
             val layout = host()?.takeIf { it.isAttached } ?: return@awaitEachGesture
             val start = layout.localToRoot(down.position)
             if (down.isConsumed) return@awaitEachGesture

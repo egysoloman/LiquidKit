@@ -478,7 +478,7 @@ fun LiquidOutlineCell(
     SideEffect { notifyHighlight?.invoke(highlighted) }
     val activeFill = if (colors.background == Color.Black && !selected) Color(0xff2c2c2e) else colors.selected
     val fill by animateColorAsState(
-        if (highlighted) activeFill else colors.background,
+        if (highlighted) activeFill else colors.surface,
         tween(if (pressHighlighted) controls.listPressMillis else controls.listReleaseMillis),
         label = "Outline selection",
     )
@@ -540,7 +540,7 @@ fun LiquidListCell(
     val gap = if (style == LiquidListStyle.Cards) 8.dp else 13.dp
     LocalSeparatorInset.current?.let { inset -> SideEffect { inset.value = start + if (leading != null) slot + gap else 0.dp } }
     val controls = LocalLiquidGlassTokens.current.controls
-    val resting = if (style == LiquidListStyle.Plain) colors.background else colors.surface
+    val resting = colors.surface
     val highlighted = selected || pressHighlighted
     val notifyHighlight = LocalListRowHighlightCallback.current
     SideEffect { notifyHighlight?.invoke(highlighted) }

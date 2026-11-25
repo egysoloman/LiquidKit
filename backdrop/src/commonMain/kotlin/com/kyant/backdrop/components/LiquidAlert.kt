@@ -137,6 +137,13 @@ fun LiquidAlert(
             dismissAnimated(after = onClick)
         }
 
+        val dismissOwner = LocalLiquidModalDismissOwner.current
+        DisposableEffect(dismissOwner) {
+            val cb: () -> Unit = { dismissAnimated() }
+            dismissOwner?.value = cb
+            onDispose { if (dismissOwner?.value === cb) dismissOwner.value = null }
+        }
+
         LaunchedEffect(Unit) {
             launch { scaleAnim.animateTo(1f, tokens.enterSpring.spec) }
             launch { alphaAnim.animateTo(1f, tween(135)) }
@@ -160,15 +167,15 @@ fun LiquidAlert(
         }
 
         Box(Modifier.fillMaxSize()) {
-            if (hasInWindowHost) {
-                Spacer(
-                    Modifier.matchParentSize()
-                        .drawBehind {
+            Spacer(
+                Modifier.matchParentSize()
+                    .drawBehind {
+                        if (hasInWindowHost) {
                             drawRect(Color.Black.copy(alpha = tokens.scrimAlpha * alphaAnim.value.coerceIn(0f, 1f)))
                         }
-                        .clickable(interactionSource = null, indication = null) { dismissAnimated() },
-                )
-            }
+                    }
+                    .clickable(interactionSource = null, indication = null) { dismissAnimated() },
+            )
             Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(16.dp), contentAlignment = Alignment.Center) {
                 val alertBgBackdrop = rememberLayerBackdrop()
                 Box(
@@ -193,7 +200,10 @@ fun LiquidAlert(
                             )
                             .then(if (backdrop == null) Modifier.border(.5.dp, line, shape) else Modifier),
                     )
-                    CompositionLocalProvider(LocalLiquidSurfaceBackdrop provides alertBgBackdrop) {
+                    CompositionLocalProvider(
+                        LocalLiquidSurfaceBackdrop provides alertBgBackdrop,
+                        LocalLiquidModalDismiss provides { dismissAnimated() },
+                    ) {
                         Column(
                             Modifier.fillMaxWidth()
                                 .semantics { paneTitle = title }

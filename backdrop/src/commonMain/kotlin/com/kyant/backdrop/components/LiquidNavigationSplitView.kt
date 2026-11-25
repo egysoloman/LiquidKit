@@ -121,8 +121,8 @@ fun LiquidNavigationSplitView(
     BoxWithConstraints(modifier.fillMaxSize()) {
         val visible = state.layoutFor(maxWidth, visibility, content != null, twoColumnWidth, threeColumnWidth).columns
         if (maxWidth < twoColumnWidth || !maxWidth.value.isFinite()) {
-            LiquidSwipeBackNavigation(visible.first(), state.ancestors.firstOrNull().takeIf { swipeBackFromBlank },
-                { it.ordinal }, { it }, { state.back() }, Modifier.fillMaxSize(), content = pane)
+            LiquidSwipeBackNavigation(visible.first(), state.ancestors.firstOrNull(),
+                { it.ordinal }, { it }, { state.back() }, Modifier.fillMaxSize(), blankSwipeEnabled = swipeBackFromBlank, content = pane)
         } else {
             val sidebarWidth = (maxWidth * .33f).coerceAtMost(310.dp)
             val contentWidth = (maxWidth * .38f).coerceAtMost(370.dp)

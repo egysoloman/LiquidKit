@@ -1,10 +1,15 @@
 package com.kyant.backdrop.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -64,7 +69,7 @@ fun LiquidSearchField(
     )
     val text = TextStyle(colors.ink, 17.sp)
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f).liquidControlPress(backdrop != null)) {
+        Box(Modifier.weight(1f).liquidControlPress(backdrop != null, consumeDrag = false)) {
             Spacer(Modifier.matchParentSize().padding(vertical = 1.dp).then(surface))
             BasicTextField(value, onValueChange, Modifier.fillMaxWidth()
                 .onFocusChanged { focused = it.isFocused }
@@ -87,18 +92,31 @@ fun LiquidSearchField(
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             editor()
                         }
-                        if (value.isNotEmpty()) Box(Modifier.size(44.dp).clip(CircleShape)
-                            .clickable(interactionSource = null, indication = null, role = Role.Button) { onValueChange("") }
-                            .semantics { contentDescription = clearLabel },
-                            contentAlignment = Alignment.Center) {
-                            Box(Modifier.size(18.dp).background(colors.secondary, CircleShape), contentAlignment = Alignment.Center) {
-                                LiquidIcon(LiquidSymbol.Close, if (backdrop == null) fieldFill else colors.background, Modifier.size(12.dp))
+                        AnimatedContent(
+                            targetState = value.isNotEmpty(),
+                            transitionSpec = {
+                                (fadeIn(tween(130)) + scaleIn(tween(130), initialScale = 0.8f))
+                                    .togetherWith(fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.8f))
+                            },
+                            label = "SearchField trailing",
+                        ) { hasQuery ->
+                            if (hasQuery) {
+                                Box(Modifier.size(44.dp).liquidControlPress().clip(CircleShape)
+                                    .clickable(interactionSource = null, indication = null, role = Role.Button) { onValueChange("") }
+                                    .semantics { contentDescription = clearLabel },
+                                    contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(18.dp).background(colors.secondary, CircleShape), contentAlignment = Alignment.Center) {
+                                        LiquidIcon(LiquidSymbol.Close, if (backdrop == null) fieldFill else colors.background, Modifier.size(12.dp))
+                                    }
+                                }
+                            } else {
+                                trailingAction?.invoke()
                             }
-                        } else trailingAction?.invoke()
+                        }
                     }
                 })
         }
-        if (cancelLabel != null) AnimatedVisibility(focused, enter = expandHorizontally() + fadeIn(),
+        if (cancelLabel != null) AnimatedVisibility(focused || value.isNotEmpty(), enter = expandHorizontally() + fadeIn(),
             exit = shrinkHorizontally() + fadeOut()) {
             LiquidActionButton(cancelLabel, { onValueChange(""); focus.clearFocus() }, cursorColor,
                 style = LiquidActionStyle.Plain)

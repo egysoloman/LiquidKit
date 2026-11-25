@@ -83,26 +83,31 @@ fun LiquidMenuHost(
         state.rootBody != null || state.overlayActive || state.restoringSource
 
     if (modalRegistry != null) {
-        val modalEntry = remember(state) { LiquidModalMenuEntry(state) }
+        val parentModalEntry = LocalCurrentModalEntry.current
+        val modalEntry = remember(state, parentModalEntry) { LiquidModalMenuEntry(state, parentModalEntry) }
         val currentRootOverlay by rememberUpdatedState(rootOverlay)
+        val currentBackdrop by rememberUpdatedState(backdrop)
         SideEffect {
             modalEntry.active = pageActive
+        }
+        LaunchedEffect(modalEntry) {
             modalEntry.overlay = { _, _, _ ->
                 if (modalEntry.active) {
                     val liveBackdrop = LocalLiquidModalBackdrop.current
-                    val underMenu = if (liveBackdrop != null && backdrop != liveBackdrop) {
-                        rememberCombinedBackdrop(backdrop, liveBackdrop)
+                    val sceneBackdrop = currentBackdrop
+                    val underMenu = if (liveBackdrop != null && sceneBackdrop != liveBackdrop) {
+                        rememberCombinedBackdrop(sceneBackdrop, liveBackdrop)
                     } else {
-                        liveBackdrop ?: backdrop
+                        liveBackdrop ?: sceneBackdrop
                     }
                     val overlayActive = state.branches.isNotEmpty()
                     val behindBranches = if (currentRootOverlay != null) {
                         val overlay = rememberLayerBackdrop()
                         Box(Modifier.matchParentSize().menuBackdrop(overlay, enabled = overlayActive)) {
-                            val scene = if (state.restoringSource) backdrop else underMenu
+                            val scene = if (state.restoringSource) sceneBackdrop else underMenu
                             CompositionLocalProvider(
                                 LocalMenuReturnOwner provides state,
-                                LocalMenuBackdrop provides backdrop,
+                                LocalMenuBackdrop provides sceneBackdrop,
                             ) {
                                 currentRootOverlay?.invoke(this, scene)
                             }

@@ -1,11 +1,16 @@
 package com.kyant.backdrop.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,8 +44,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,47 +91,42 @@ fun LiquidInlinePicker(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
-    tint: Color = Color(0xff007aff),
+    tint: Color = Color.Unspecified,
     colors: LiquidListColors = liquidListColors(),
 ) {
     if (options.isEmpty()) return
+    val dark = liquidGlassAppearance().dark
+    val resolvedTint = if (tint.isSpecified) tint else if (dark) Color(0xff0a84ff) else Color(0xff007aff)
+    val haptics = rememberLiquidHaptics()
     LiquidFormSection(title = title, modifier = modifier.selectableGroup(), colors = colors) {
         options.forEach { option ->
             val isChosen = option == selected
-            row(inset = false, onClick = null) {
-                val setRowHighlight = LocalFormRowHighlight.current
-                val interaction = remember { MutableInteractionSource() }
-                val pressed by interaction.collectIsPressedAsState()
-                var holding by remember { mutableStateOf(false) }
-                LaunchedEffect(pressed) {
-                    if (pressed) {
-                        delay(110L)
-                        holding = true
-                    } else {
-                        holding = false
-                    }
-                }
-                LaunchedEffect(holding, setRowHighlight) {
-                    setRowHighlight?.invoke(holding)
-                }
-                DisposableEffect(setRowHighlight) {
-                    onDispose { setRowHighlight?.invoke(false) }
-                }
+            row(
+                inset = false,
+                onClick = {
+                    if (!isChosen) haptics(LiquidHaptic.SelectionTick)
+                    onSelect(option)
+                },
+            ) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(interactionSource = interaction, indication = null, role = Role.Button) {
-                            onSelect(option)
-                        }
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                         .heightIn(min = 28.dp)
-                        .semantics { this.selected = isChosen },
+                        .semantics {
+                            role = Role.RadioButton
+                            this.selected = isChosen
+                        },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     BasicText(option, Modifier.weight(1f), style = TextStyle(colors.ink, 17.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (isChosen) {
-                        LiquidIcon(LiquidSymbol.Check, tint, Modifier.size(18.dp))
+                    AnimatedVisibility(
+                        visible = isChosen,
+                        enter = fadeIn(tween(140)) + scaleIn(tween(140), initialScale = 0.72f),
+                        exit = fadeOut(tween(110)) + scaleOut(tween(110), targetScale = 0.72f),
+                    ) {
+                        LiquidIcon(LiquidSymbol.Check, resolvedTint, Modifier.size(18.dp))
                     }
                 }
             }
@@ -149,14 +152,16 @@ fun LiquidPalettePicker(
     selectedId: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
-    tint: Color = Color(0xff007aff),
+    tint: Color = Color.Unspecified,
     colors: LiquidListColors = liquidListColors(),
 ) {
     if (options.isEmpty()) return
     val dark = liquidGlassAppearance().dark
+    val resolvedTint = if (tint.isSpecified) tint else if (dark) Color(0xff0a84ff) else Color(0xff007aff)
+    val haptics = rememberLiquidHaptics()
     Row(
         modifier.fillMaxWidth().selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEach { option ->
@@ -170,9 +175,13 @@ fun LiquidPalettePicker(
                 label = "Palette scale",
             )
             val fill = if (option.color.isSpecified) option.color else if (dark) Color(0xff2c2c2e) else Color(0xffe5e5ea)
-            val ringColor = if (option.color.isSpecified) option.color else tint
+            val rawRingColor = if (option.color.isSpecified) option.color else resolvedTint
+            val ringColor = if (dark && rawRingColor.luminance() < 0.15f) Color(0xFF8E8E93)
+            else if (!dark && rawRingColor.luminance() > 0.85f) Color(0xFFAEAEB2)
+            else rawRingColor
             Box(
-                Modifier.size(38.dp)
+                Modifier.size(44.dp)
+                    .padding(3.dp)
                     .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
                     .clip(CircleShape)
                     .border(2.2.dp, ringColor.copy(alpha = ringAlpha), CircleShape)
@@ -180,6 +189,7 @@ fun LiquidPalettePicker(
                     .clip(CircleShape)
                     .background(fill)
                     .selectable(selected = isChosen, interactionSource = interaction, indication = null, role = Role.RadioButton) {
+                        if (!isChosen) haptics(LiquidHaptic.SelectionTick)
                         onSelect(option.id)
                     }
                     .semantics { contentDescription = option.label },
@@ -187,7 +197,7 @@ fun LiquidPalettePicker(
             ) {
                 if (option.symbol != null) {
                     val iconTint = if (option.color.isSpecified) liquidContentColorFor(option.color)
-                    else if (isChosen) tint else colors.ink
+                    else if (isChosen) resolvedTint else colors.ink
                     LiquidIcon(option.symbol, iconTint, Modifier.size(18.dp))
                 }
             }
@@ -214,7 +224,7 @@ fun LiquidTabsPicker(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
-    tint: Color = Color(0xff007aff),
+    tint: Color = Color.Unspecified,
     colors: LiquidListColors = liquidListColors(),
 ) {
     if (options.isEmpty()) return
@@ -222,6 +232,8 @@ fun LiquidTabsPicker(
     val controls = tokens.controls
     val appearance = liquidGlassAppearance()
     val dark = appearance.dark
+    val resolvedTint = if (tint.isSpecified) tint else if (dark) Color(0xff0a84ff) else Color(0xff007aff)
+    val activeInkColor = if (dark && !tint.isSpecified) Color.White else if (dark) Color(0xFF4DA3FF) else resolvedTint
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val currentSelect by rememberUpdatedState(onSelect)
     val selectedIndex = options.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
@@ -299,11 +311,12 @@ fun LiquidTabsPicker(
     val rim = rememberLiquidRimHighlight(dark, layeredEdge = false)
 
     val trackFill = if (dark) Color(0xFF767680).copy(alpha = .24f) else Color(0xFF767680).copy(alpha = .10f)
-    val restingThumbFill = if (dark) Color(0xFF636366) else Color.White
+    val restingThumbFill = if (dark) Color(0xFF3A3A3C) else Color.White
 
     val density = LocalDensity.current
     val currentSelectedIndex by rememberUpdatedState(selectedIndex)
     val haptics = rememberLiquidHaptics()
+    val supportsRuntimeShader = remember { isRuntimeShaderSupported() }
     val trackHeight = 36.dp
     val innerPad = 2.dp
     val pillHeight = trackHeight - innerPad * 2
@@ -325,13 +338,9 @@ fun LiquidTabsPicker(
                         trackWidthPx.toFloat(),
                         options.size,
                     ).roundToInt().coerceIn(0, options.lastIndex)
-                    var claimed = downIdx == currentSelectedIndex
+                    // Disambiguate vertical scrolling before claiming/consuming drag even on the active tab.
+                    var claimed = false
                     var lastHoverIdx = downIdx
-                    tracking = claimed
-                    if (claimed) {
-                        finger = downIdx.toFloat()
-                        down.consume()
-                    }
                     try {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -345,6 +354,7 @@ fun LiquidTabsPicker(
                             if (!claimed && ((dx > slop && dx >= dy) || heldLongEnough)) {
                                 claimed = true
                                 tracking = true
+                                if (downIdx == currentSelectedIndex) finger = downIdx.toFloat()
                             }
                             if (claimed) {
                                 val lx = logicalX(p.position.x)
@@ -493,9 +503,13 @@ fun LiquidTabsPicker(
                             null
                         },
                         onDrawSurface = {
-                            val wash = if (dark) Color.White.copy(alpha = .07f * activeGlass)
-                            else Color.White.copy(alpha = .18f * activeGlass)
-                            drawRect(wash)
+                            if (!supportsRuntimeShader) {
+                                drawRect(restingThumbFill.copy(alpha = androidx.compose.ui.util.lerp(.96f, .45f, activeGlass)))
+                            } else {
+                                val wash = if (dark) Color.White.copy(alpha = .07f * activeGlass)
+                                else Color.White.copy(alpha = .18f * activeGlass)
+                                drawRect(wash)
+                            }
                         },
                     ),
             )
@@ -504,7 +518,6 @@ fun LiquidTabsPicker(
         // Layer 3: Crisp tab icons + labels with TabInkShader refraction & chromatic dispersion under active lens.
         val inkLayer = rememberGraphicsLayer()
         val lensInk = rememberGraphicsLayer()
-        val supportsRuntimeShader = remember { isRuntimeShaderSupported() }
         val inkShaderHolder = remember { arrayOfNulls<RuntimeShader>(1) }
         val tabTokens = tokens.tabs
         Row(
@@ -563,7 +576,7 @@ fun LiquidTabsPicker(
                             inkShader.setFloatUniform("sceneOffset", 0f)
                             inkShader.setFloatUniform("vibrancy", 0f)
                             inkShader.setFloatUniform("backing", 0f)
-                            inkShader.setColorUniform("ink", colors.ink)
+                            inkShader.setColorUniform("ink", activeInkColor)
                             lensInk.renderEffect = RuntimeShaderEffect(inkShader, "content")
                             lensInk.record(size = IntSize(cropW, cropH)) {
                                 translate(-cropLeft, -cropTop) { drawLayer(inkLayer) }
@@ -586,15 +599,17 @@ fun LiquidTabsPicker(
                 val active = option.id == selectedId
                 val highlighted = if (finger != null) idx == centerIdx.roundToInt().coerceIn(0, options.lastIndex) else active
                 val ink by animateColorAsState(
-                    if (active) tint else colors.ink.copy(alpha = .78f),
+                    if (active) activeInkColor else colors.ink.copy(alpha = .78f),
                     tween(140),
                     label = "TabsPicker ink",
                 )
                 Row(
                     Modifier.weight(1f).fillMaxHeight()
                         .semantics {
+                            role = Role.Tab
                             selected = active
                             contentDescription = option.label
+                            onClick { currentSelect(option.id); true }
                         }
                         .padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),

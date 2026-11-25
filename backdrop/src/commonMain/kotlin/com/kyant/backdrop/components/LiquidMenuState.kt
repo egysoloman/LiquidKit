@@ -160,11 +160,19 @@ class LiquidMenuState internal constructor(private val onSelect: (LiquidMenuItem
         sourceTrigger = trigger
         openingGroupBounds = trigger.toolbar?.layout.visibleBounds()
         trigger.beforeOpen()
-        show()
+        showInternal(allowTriggerFallback = false)
     }
 
-    fun show() {
+    fun show() = showInternal(allowTriggerFallback = true)
+
+    private fun showInternal(allowTriggerFallback: Boolean) {
         if (expanded) return
+        if (allowTriggerFallback && openingBounds == null) {
+            triggers.firstOrNull()?.let {
+                openFrom(it)
+                return
+            }
+        }
         if (sourceTrigger?.activation == LiquidMenuActivation.ListContext && previewTrigger == null) {
             previewTrigger = sourceTrigger?.takeIf { it in triggers }
         }

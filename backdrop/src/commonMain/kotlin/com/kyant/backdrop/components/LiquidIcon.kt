@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 
@@ -72,7 +73,10 @@ fun LiquidIcon(symbol: LiquidSymbol, color: Color = Color.Unspecified, modifier:
     Canvas(modifier.size(22.dp)) {
         val ink = lerp(base, pressed, highlight?.pressProgress?.coerceIn(0f, 1f) ?: 0f)
         val factor = size.minDimension / 24f
-        scale(factor, pivot = Offset.Zero) {
+        val offsetX = (size.width - 24f * factor) * 0.5f
+        val offsetY = (size.height - 24f * factor) * 0.5f
+        translate(offsetX, offsetY) {
+            scale(factor, pivot = Offset.Zero) {
             when (symbol) {
                 LiquidSymbol.Back, LiquidSymbol.Forward, LiquidSymbol.Check, LiquidSymbol.More,
                 LiquidSymbol.Close, LiquidSymbol.Add, LiquidSymbol.Help, LiquidSymbol.ChevronDown,
@@ -102,6 +106,7 @@ fun LiquidIcon(symbol: LiquidSymbol, color: Color = Color.Unspecified, modifier:
                 LiquidSymbol.Map, LiquidSymbol.Lightbulb, LiquidSymbol.Chart, LiquidSymbol.Camera,
                 LiquidSymbol.Send, LiquidSymbol.Code, LiquidSymbol.Drop, LiquidSymbol.Palette ->
                     drawVisualSymbol(symbol, ink, scratchPath)
+                }
             }
         }
     }
@@ -335,7 +340,7 @@ private fun DrawScope.drawControlGallerySymbol(symbol: LiquidSymbol, ink: Color,
         }
         LiquidSymbol.CircleHalfFilled -> {
             drawCircle(ink, 8.8f, Offset(12f, 12f), style = IconPen)
-            drawArc(ink, -90f, 180f, true, Offset(3.2f, 3.2f), Size(17.6f, 17.6f))
+            drawArc(ink, 90f, 180f, true, Offset(3.2f, 3.2f), Size(17.6f, 17.6f))
         }
         LiquidSymbol.SquareOnCircle -> {
             drawCircle(ink, 6.3f, Offset(9.5f, 9.5f), style = IconPen)

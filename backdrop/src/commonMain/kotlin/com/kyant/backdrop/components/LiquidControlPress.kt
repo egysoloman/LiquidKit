@@ -14,10 +14,10 @@ import kotlin.math.abs
 
 /** Observe a control's touch while its editor, click handler or containing scroll view owns the action. */
 @Composable
-internal fun Modifier.liquidControlPress(enabled: Boolean = true): Modifier {
+internal fun Modifier.liquidControlPress(enabled: Boolean = true, consumeDrag: Boolean = true): Modifier {
     if (!enabled) return this
     val motion = rememberControlPress()
-    return observeControlPress(motion).graphicsLayer { motion.apply(this) }
+    return observeControlPress(motion, enabled = true, consumeDrag = consumeDrag).graphicsLayer { motion.apply(this) }
 }
 
 @Composable
@@ -28,7 +28,14 @@ internal fun rememberControlPress(): LiquidPressMotion {
 }
 
 @Composable
-internal fun Modifier.observeControlPress(motion: LiquidPressMotion, enabled: Boolean = true): Modifier {
+internal fun Modifier.observeControlPress(
+    motion: LiquidPressMotion,
+    enabled: Boolean = true,
+    consumeDrag: Boolean = true,
+): Modifier {
+    LaunchedEffect(motion, enabled) {
+        if (!enabled) motion.release(completed = false)
+    }
     if (!enabled) return this
     var keyDown by remember(motion) { mutableStateOf(false) }
     return onFocusChanged {
@@ -39,28 +46,27 @@ internal fun Modifier.observeControlPress(motion: LiquidPressMotion, enabled: Bo
             if (it.type == KeyEventType.KeyUp && keyDown) { keyDown = false; motion.release() }
         }
         false
-    }.pointerInput(motion) {
+    }.pointerInput(motion, consumeDrag) {
         val slop = viewConfiguration.touchSlop
         awaitEachGesture {
             val down = awaitFirstDown(false, PointerEventPass.Initial)
-            if (!motion.begin()) return@awaitEachGesture
+            if (down.isConsumed || !motion.begin()) return@awaitEachGesture
             var locked = false
             var released = false
             try {
                 do {
-                    val pass = if (locked) PointerEventPass.Initial else PointerEventPass.Final
+                    val pass = if (locked && consumeDrag) PointerEventPass.Initial else PointerEventPass.Final
                     val event = awaitPointerEvent(pass)
-                    val p = event.changes.singleOrNull() ?: break
-                    if (p.id != down.id) break
+                    val p = event.changes.firstOrNull { it.id == down.id } ?: break
                     if (!p.pressed) {
                         released = true
                         break
                     }
                     val delta = p.position - down.position
-                    if (!locked && (p.uptimeMillis - down.uptimeMillis >= 110L || abs(delta.x) > slop)) {
+                    if (consumeDrag && !locked && (p.uptimeMillis - down.uptimeMillis >= 110L || abs(delta.x) > slop)) {
                         locked = true
                     }
-                    if (locked) {
+                    if (locked && consumeDrag) {
                         if (delta.getDistance() > slop) p.consume()
                     } else if (p.isConsumed && abs(delta.y) > slop && abs(delta.y) > abs(delta.x)) {
                         break

@@ -78,6 +78,7 @@ fun LiquidProgressiveNavHeader(
     }
     val headerHairline = if (dark) Color.White.copy(alpha = .10f) else Color.Black.copy(alpha = .065f)
     val visible = alpha > 0.003f
+    val clampedAlpha = if (visible) alpha.coerceIn(0f, 1f) else 0f
     SideEffect {
         edgeLayer?.let {
             it.isEnabled = visible
@@ -88,34 +89,36 @@ fun LiquidProgressiveNavHeader(
         modifier
             .fillMaxWidth()
             .height(barHeight)
-            .graphicsLayer { this.alpha = if (visible) alpha.coerceIn(0f, 1f) else 0f }
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { RectangleShape },
                 effects = {
-                    val baseBlur = 6.dp.toPx()
-                    val extraTopBlur = 10.dp.toPx()
-                    blur(baseBlur, TileMode.Clamp)
-                    if (supportsRuntimeShader) {
-                        runtimeShaderEffect("NavHeaderGlass_v2", NavHeaderGlassShader, "content") {
-                            setFloatUniform("barWidth", size.width)
-                            setFloatUniform("barHeight", size.height)
-                            setFloatUniform("density", 1.dp.toPx())
-                            setFloatUniform("topBlurPx", extraTopBlur)
-                            setFloatUniform("dark", if (dark) 1f else 0f)
-                            setFloatUniform("glassOpacity", appearance.opacity)
+                    if (visible) {
+                        val baseBlur = 6.dp.toPx() * clampedAlpha
+                        val extraTopBlur = 10.dp.toPx() * clampedAlpha
+                        if (baseBlur > 0.05f) blur(baseBlur, TileMode.Clamp)
+                        if (supportsRuntimeShader) {
+                            runtimeShaderEffect("NavHeaderGlass_v3", NavHeaderGlassShader, "content") {
+                                setFloatUniform("barWidth", size.width)
+                                setFloatUniform("barHeight", size.height)
+                                setFloatUniform("density", 1.dp.toPx())
+                                setFloatUniform("topBlurPx", extraTopBlur)
+                                setFloatUniform("dark", if (dark) 1f else 0f)
+                                setFloatUniform("glassOpacity", appearance.opacity)
+                                setFloatUniform("headerAlpha", clampedAlpha)
+                            }
                         }
                     }
                 },
                 highlight = null,
                 shadow = null,
                 exportedBackdrop = edgeLayer,
-                onDrawSurface = if (supportsRuntimeShader) null else {
+                onDrawSurface = if (supportsRuntimeShader || !visible) null else {
                     {
-                        drawRect(headerFallbackBrush)
+                        drawRect(headerFallbackBrush, alpha = clampedAlpha)
                         val hairlinePx = 0.5.dp.toPx()
                         drawRect(
-                            color = headerHairline,
+                            color = headerHairline.copy(alpha = headerHairline.alpha * clampedAlpha),
                             topLeft = Offset(0f, (size.height - hairlinePx).coerceAtLeast(0f)),
                             size = Size(size.width, hairlinePx),
                         )
@@ -170,7 +173,7 @@ fun LiquidNavigationScaffold(
         val large = when (titleMode) {
             LiquidNavigationTitleMode.Large -> true
             LiquidNavigationTitleMode.Inline -> false
-            LiquidNavigationTitleMode.Automatic -> scrollState != null && maxHeight >= 360.dp
+            LiquidNavigationTitleMode.Automatic -> (scrollState != null || scrollOffsetPx != null) && maxHeight >= 360.dp
         }
         val actionsHeight = maxOf(60.dp, with(density) { 22.sp.toDp() } + 16.dp)
         val titleHeight = if (large) maxOf(60.dp, with(density) { 34.sp.toDp() } + 20.dp) else 0.dp
@@ -298,8 +301,11 @@ uniform float density;
 uniform float topBlurPx;
 uniform float dark;
 uniform float glassOpacity;
+uniform float headerAlpha;
 
 half4 main(float2 coord) {
+    float hAlpha = clamp(headerAlpha, 0.0, 1.0);
+    if (hAlpha <= 0.002) return half4(0.0);
     float2 minPt = float2(0.5, 0.5);
     float2 maxPt = float2(max(barWidth - 0.5, 0.5), max(barHeight - 0.5, 0.5));
     float2 baseCoord = clamp(coord, minPt, maxPt);
@@ -335,6 +341,6 @@ half4 main(float2 coord) {
     } else {
         rgb = mix(rgb, half3(1.0), half(0.10 * hairline));
     }
-    return half4(clamp(rgb, half3(0.0), half3(1.0)), 1.0);
+    return half4(clamp(rgb, half3(0.0), half3(1.0)) * half(hAlpha), half(hAlpha));
 }
 """
