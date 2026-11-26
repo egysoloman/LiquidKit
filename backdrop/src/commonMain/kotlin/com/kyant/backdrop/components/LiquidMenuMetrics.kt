@@ -20,9 +20,9 @@ import kotlin.coroutines.coroutineContext
 @Immutable
 class LiquidMenuMetrics(viewportWidth: Dp, fontScale: Float = 1f) {
     // Only limit a panel which physically cannot fit. A phone or a split pane uses the same control sizes.
-    val scale = ((viewportWidth - 20.dp) / 216.dp).coerceIn(.1f, 1f)
+    val scale = ((viewportWidth - 20.dp) / 250.dp).coerceIn(.1f, 1f)
     private val textHeight = fontScale.coerceAtLeast(1f)
-    val width = 216.dp * scale
+    val width = 250.dp * scale
     val inset = 9.dp * scale
     val row = 42.dp * scale * textHeight
     val subtitleRow = 58.dp * scale * textHeight
@@ -88,7 +88,7 @@ internal fun rememberMenuMotionPose(
         physics.attachScroll(panel?.fingerScroll ?: 0f)
         var lastRelease = panel?.releaseCount
         var lastMoveSeq = panel?.moveSeq ?: 0
-        var idleFrames = 0
+        var noMoveNanos = 0L
         val durationScale = coroutineContext[MotionDurationScale]
         // Sleep when settled. Read the latest finger target on each frame, without restarting the spring.
         snapshotFlow {
@@ -101,21 +101,28 @@ internal fun rememberMenuMotionPose(
                         if (!panel.dragging) physics.lift(panel.releasedPull, panel.releaseVelocity)
                         lastRelease = panel.releaseCount
                     }
-                    if (panel != null && panel.dragging) {
-                        if (panel.moveSeq != lastMoveSeq) {
-                            lastMoveSeq = panel.moveSeq
-                            idleFrames = 0
-                        } else {
-                            idleFrames++
-                            if (idleFrames >= 6) panel.decayMotion(0.65f)
-                        }
-                    } else {
-                        idleFrames = 0
-                    }
                     val scale = durationScale?.scaleFactor ?: 1f
                     val elapsed = if (previous == 0L) 16_000_000L else (now - previous).coerceAtLeast(1_000_000L)
                     previous = now
                     val nanos = if (scale <= 0f) 0L else (elapsed / scale.toDouble()).toLong()
+                    if (panel != null && panel.dragging) {
+                        if (panel.moveSeq != lastMoveSeq) {
+                            lastMoveSeq = panel.moveSeq
+                            noMoveNanos = 0L
+                        } else {
+                            noMoveNanos += nanos
+                            if (noMoveNanos >= 18_000_000L) {
+                                val dtSec = (nanos / 1_000_000_000.0).coerceAtMost(0.05)
+                                panel.decayMotion(kotlin.math.exp(-dtSec / 0.045).toFloat())
+                            }
+                        }
+                    } else {
+                        noMoveNanos = 0L
+                    }
+                    val panelRect = activeKey?.let { state.restPanelBounds[it] ?: state.panels[it].visibleBounds() }
+                    val aspectRatio = if (panelRect != null && panelRect.height > 1f) {
+                        (panelRect.width / panelRect.height).coerceIn(0.55f, 2.2f)
+                    } else 1f
                     val running = physics.advance(
                         pull = panel?.pull ?: Offset.Zero,
                         scrolled = panel?.fingerScroll ?: 0f,
@@ -123,10 +130,11 @@ internal fun rememberMenuMotionPose(
                         nanos = nanos,
                         fingerVelocity = panel?.pointerVelocity ?: Offset.Zero,
                         fingerAcceleration = panel?.pointerAcceleration ?: Offset.Zero,
-                        fingerMoving = (panel?.dragging == true) && idleFrames < 6,
+                        fingerMoving = panel?.dragging == true,
+                        aspectRatio = aspectRatio,
                     )
                     pose = physics.pose
-                    running
+                    running || (panel?.dragging == true && (panel.pointerVelocity != Offset.Zero || panel.pointerAcceleration != Offset.Zero))
                 }
             } while (moving)
         }
@@ -147,6 +155,9 @@ internal fun Modifier.menuPanelMotion(
 ): Modifier = composed {
     val activeKey = if (state.activeLevel.size == level) state.activeLevel else null
     val motion = externalMotion ?: rememberMenuMotionPose(state, level, trailing, bottom)
+    val metrics = liquidMenuMetrics()
+    val density = LocalDensity.current
+    val minRestWidthPx = with(density) { (metrics.width * 0.85f).toPx() }
     var outerBox by remember { mutableStateOf<LayoutCoordinates?>(null) }
     if (activeKey != null) {
         DisposableEffect(state, activeKey) {
@@ -175,6 +186,7 @@ internal fun Modifier.menuPanelMotion(
             kotlin.math.abs(motion.pose.center.x) < 0.5f && kotlin.math.abs(motion.pose.center.y) < 0.5f &&
             kotlin.math.abs(motion.pose.stretch.x) < 0.5f && kotlin.math.abs(motion.pose.stretch.y) < 0.5f
         if (key != null && panelBounds != null && box != null && scale > .01f &&
+            panelBounds.width >= minRestWidthPx &&
             (settledRest || state.restPanelBounds[key] == null)
         ) {
             val pivot = box.localToRoot(Offset(box.size.width / 2f, box.size.height / 2f))

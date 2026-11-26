@@ -3,7 +3,6 @@ package com.kyant.backdrop.components
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.SeekableTransitionState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -38,6 +37,21 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+internal fun navigationCoverDimFraction(
+    displayedDepth: Int,
+    currentDepth: Int,
+    targetDepth: Int,
+    fraction: Float,
+): Float {
+    val raw = when {
+        currentDepth > displayedDepth && targetDepth > displayedDepth -> 1f
+        currentDepth > displayedDepth && targetDepth <= displayedDepth -> (1f - fraction).coerceIn(0f, 1f)
+        currentDepth <= displayedDepth && targetDepth > displayedDepth -> fraction.coerceIn(0f, 1f)
+        else -> 0f
+    }
+    return raw * raw
+}
 
 private class BackDrag<T>(val from: T, val parent: T) {
     var fraction by mutableFloatStateOf(0f)
@@ -80,6 +94,12 @@ fun <T : Any> LiquidSwipeBackNavigation(
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
     val motion = LocalLiquidGlassTokens.current.navigation
     val duration = motion.durationMillis
+    val modalRegistry = LocalLiquidModalRegistry.current
+    LaunchedEffect(modalRegistry, key, drag != null) {
+        modalRegistry?.menus?.forEach { entry ->
+            if (entry.state.expanded) entry.state.dismiss()
+        }
+    }
     LaunchedEffect(reportVisualTarget, state, motion) {
         val cb = reportVisualTarget ?: return@LaunchedEffect
         snapshotFlow {
@@ -112,43 +132,55 @@ fun <T : Any> LiquidSwipeBackNavigation(
         val gesture = drag
         if (gesture == null || contentKey(gesture.from) != key) {
             if (gesture != null) drag = null
-            if (contentKey(state.currentState) != key || contentKey(state.targetState) != key)
+            if (contentKey(state.currentState) != key || contentKey(state.targetState) != key) {
                 state.animateTo(latestPage, tween(duration, easing = motion.pageEasing))
+            } else if (navTransition.isRunning) {
+                state.snapTo(latestPage)
+            }
             return@LaunchedEffect
         }
-        val (_, commit) = snapshotFlow { gesture.fraction to gesture.commit }.first { (fraction, released) ->
-            state.seekTo(fraction, gesture.parent)
-            released != null
-        }
-        if (commit == true && latestParent?.let(contentKey) == contentKey(gesture.parent)) {
-            val remaining = ((1f - state.fraction) * duration).roundToInt().coerceAtLeast(1)
-            state.animateTo(gesture.parent, tween(remaining, easing = motion.pageEasing))
-            navigate(gesture.parent)
-        } else {
-            val start = state.fraction
-            val scale = coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f
-            val nanos = start * duration * scale * 1_000_000f
-            if (nanos > 0f) {
-                val first = withFrameNanos { it }
-                do {
-                    val elapsed = withFrameNanos { it - first }
-                    val time = (elapsed / nanos).coerceIn(0f, 1f)
-                    state.seekTo(start * (1f - motion.pageEasing.transform(time)), gesture.parent)
-                } while (time < 1f)
+        try {
+            val (_, commit) = snapshotFlow { gesture.fraction to gesture.commit }.first { (fraction, released) ->
+                state.seekTo(fraction, gesture.parent)
+                released != null
             }
-            state.snapTo(latestPage)
+            if (commit == true && latestParent?.let(contentKey) == contentKey(gesture.parent)) {
+                val remaining = ((1f - state.fraction) * duration).roundToInt().coerceAtLeast(1)
+                state.animateTo(gesture.parent, tween(remaining, easing = motion.pageEasing))
+                navigate(gesture.parent)
+            } else {
+                val start = state.fraction
+                val scale = coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f
+                val nanos = start * duration * scale * 1_000_000f
+                if (nanos > 0f) {
+                    val first = withFrameNanos { it }
+                    do {
+                        val elapsed = withFrameNanos { it - first }
+                        val time = (elapsed / nanos).coerceIn(0f, 1f)
+                        state.seekTo(start * (1f - motion.pageEasing.transform(time)), gesture.parent)
+                    } while (time < 1f)
+                }
+                state.snapTo(latestPage)
+            }
+        } finally {
+            if (drag === gesture) drag = null
         }
-        drag = null
     }
     Box(modifier.clipToBounds().pointerInput(key, parentKey, direction, motion, blankSwipeEnabled) {
         if (!blankSwipeEnabled || parentKey == null) return@pointerInput
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             val parent = latestParent ?: return@awaitEachGesture
-            if (down.isConsumed || drag != null || navTransition.isRunning) return@awaitEachGesture
+            val currentDrag = drag
+            val rewinding = currentDrag != null && currentDrag.commit == false
+            val settledOnCurrent = contentKey(state.currentState) == key && contentKey(state.targetState) == key
+            if (down.isConsumed) return@awaitEachGesture
+            if (currentDrag != null && !rewinding) return@awaitEachGesture
+            if (navTransition.isRunning && !rewinding && !settledOnCurrent) return@awaitEachGesture
             val velocity = DragReleaseVelocity(down.uptimeMillis, down.position)
             val slop = viewConfiguration.touchSlop
             var session: BackDrag<T>? = null
+            var baseFraction = 0f
             try {
                 while (true) {
                     val event = awaitPointerEvent()
@@ -164,10 +196,18 @@ fun <T : Any> LiquidSwipeBackNavigation(
                             if (!touch.pressed) break
                             continue
                         }
+                        val activeRewind = drag?.let { it.commit == false && contentKey(it.from) == key } == true
+                        baseFraction = if (activeRewind && contentKey(state.currentState) == key &&
+                            contentKey(state.targetState) == contentKey(parent)
+                        ) {
+                            state.fraction.coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
                         session = BackDrag(latestPage, parent)
                         drag = session
                     }
-                    session.fraction = ((dx - slop) / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    session.fraction = (baseFraction + (dx - slop) / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
                     touch.consume()
                     if (!touch.pressed) {
                         val speed = velocity.atRelease(touch.uptimeMillis).x * direction
@@ -201,16 +241,8 @@ fun <T : Any> LiquidSwipeBackNavigation(
         }) { displayed ->
             val displayedKey = contentKey(displayed)
             val displayedDepth = depth(displayed)
-            val isTransitioning = navTransition.isRunning || drag != null
-            val isTopLayer = displayedDepth >= depth(navTransition.currentState) && displayedDepth >= depth(navTransition.targetState)
-            val coverFraction by navTransition.animateFloat(
-                transitionSpec = { tween(duration, easing = LinearEasing) },
-                label = "Navigation cover dim",
-            ) { state ->
-                if (depth(state) > displayedDepth) 1f else 0f
-            }
             val maxDim = if (dark) .14f else .06f
-            // Keep the modifier chain structurally constant across rest/transition to prevent RenderNode teardown flashes.
+            // Drive cover dim directly from SeekableTransitionState progress in draw phase to avoid 1-frame mount spikes.
             val layerDecor = Modifier
                 .zIndex(displayedDepth.toFloat())
                 .drawWithCache {
@@ -224,12 +256,21 @@ fun <T : Any> LiquidSwipeBackNavigation(
                     val topLeft = Offset(x, 0f)
                     val rectSize = Size(edgeWidth, size.height)
                     onDrawWithContent {
+                        val curDepth = depth(state.currentState)
+                        val tgtDepth = depth(state.targetState)
+                        val transitioning = navTransition.isRunning || drag != null
+                        val topLayer = displayedDepth >= curDepth && displayedDepth >= tgtDepth
+                        val effectiveCover = if (transitioning) {
+                            navigationCoverDimFraction(displayedDepth, curDepth, tgtDepth, state.fraction)
+                        } else {
+                            0f
+                        }
                         drawContent()
-                        if (isTransitioning && isTopLayer) {
+                        if (transitioning && topLayer) {
                             drawRect(brush = edgeBrush, topLeft = topLeft, size = rectSize)
                         }
-                        if (coverFraction > .001f) {
-                            drawRect(Color.Black.copy(alpha = (maxDim * coverFraction).coerceIn(0f, 1f)))
+                        if (effectiveCover > .001f) {
+                            drawRect(Color.Black.copy(alpha = (maxDim * effectiveCover).coerceIn(0f, 1f)))
                         }
                     }
                 }

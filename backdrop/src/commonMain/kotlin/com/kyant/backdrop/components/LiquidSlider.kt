@@ -194,13 +194,7 @@ fun LiquidSlider(
         }
         val activeThumbBackdrop = rememberCombinedBackdrop(
             effectiveBackdrop,
-            rememberBackdrop(trackBackdrop) { drawBackdrop ->
-                val progress = dampedDragAnimation.pressProgress
-                val scaleVal = lerp(2f / 3f, 1.06f, progress)
-                scale(scaleVal, scaleVal) {
-                    drawBackdrop()
-                }
-            },
+            trackBackdrop,
         )
 
         // Handle pointer input on the non-translating Box so thumb translation never introduces feedback jitter,
@@ -417,8 +411,8 @@ fun LiquidSlider(
                         if (progress > 0.001f) {
                             blur(appearance.blurRadius.toPx() * (1f - progress) * .5f)
                             lens(
-                                refractionHeight = 9.0.dp.toPx() * progress,
-                                refractionAmount = 20.dp.toPx() * progress,
+                                refractionHeight = 5.5.dp.toPx() * progress,
+                                refractionAmount = 8.5.dp.toPx() * progress,
                                 depthEffect = true,
                                 chromaticAberration = true
                             )

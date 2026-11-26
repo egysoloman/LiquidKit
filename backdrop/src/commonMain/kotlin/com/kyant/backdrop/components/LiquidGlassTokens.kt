@@ -65,20 +65,20 @@ data class GlassSpring(val damping: Float, val stiffness: Float) {
 @Immutable
 data class GlassPressTokens(
     val engage: GlassSpring = GlassSpring(.78f, 720f),
-    val release: GlassSpring = GlassSpring(.40f, 360f),
-    val centerRelease: GlassSpring = GlassSpring(.50f, 360f),
+    val release: GlassSpring = GlassSpring(.50f, 180f),
+    val centerRelease: GlassSpring = GlassSpring(.50f, 180f),
     val liftRelease: GlassSpring = GlassSpring(.40f, 1000f),
     val expansion: Dp = 16.dp,
-    val directionalStretch: Float = 1.0f,
-    val tracking: GlassSpring = GlassSpring(.96f, 820f),
+    val directionalStretch: Float = .55f,
+    val tracking: GlassSpring = GlassSpring(.64f, 240f),
     val scrollFlex: Dp = 2.8.dp,
-    val menuDragGain: Float = .088f,
-    /** Inside-menu static pull ratio (0 = inside stretch comes from finger velocity/acceleration and rebounds on stop). */
-    val menuInsideDragRatio: Float = 0f,
+    val menuDragGain: Float = .048f,
+    /** Inside-menu static pull ratio (subtle drag stretch proportional to distance inside panel). */
+    val menuInsideDragRatio: Float = .25f,
     /** Distance scale at which a menu pull starts gaining resistance. */
     val menuPullLimit: Dp = 30.dp,
-    val menuReleaseTransfer: Float = .12f,
-    val menuCrossContraction: Float = .56f,
+    val menuReleaseTransfer: Float = .05f,
+    val menuCrossContraction: Float = .92f,
     /** Minimum visible fraction of the normal expansion when a tap ends between frames. */
     val minimumTapLift: Float = .32f,
     val tapRiseMillis: Int = 42,
@@ -113,7 +113,7 @@ data class GlassTabTokens(
     val darkLensDiffusionScale: Float = .45f,
     val lightHeldHeightGain: Float = .055f,
     val inkVibrancy: Float = 1f,
-    val lightBackingAtMidpoint: Float = .055f,
+    val lightBackingAtMidpoint: Float = .11f,
     val lightBackingAtMaximum: Float = .42f,
     val darkBackingAtMaximum: Float = .50f,
     val denseDiffusionRadius: Dp = 13.dp,
@@ -187,8 +187,8 @@ data class GlassMenuContourTokens(
 
 @Immutable
 data class GlassMenuTokens(
-    val clearDiffusion: Float = .65f,
-    val denseDiffusion: Float = .98f,
+    val clearDiffusion: Float = 1f,
+    val denseDiffusion: Float = 1f,
     val contentRimWidth: Dp = 25.dp,
     val contentDisplacement: Dp = 18.dp,
     val previewLiftScale: Float = 1.024f,

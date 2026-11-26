@@ -44,7 +44,7 @@ half3 applyLiquidGlassTone(half3 rgb, float dark, float op, float role) {
         float isMenu = (role > 0.5 && role < 1.5) ? 1.0 : 0.0;
         float isReg = (role > 1.5 && role < 2.5) ? 1.0 : 0.0;
         float isBar = role > 3.5 ? 1.0 : 0.0;
-        float gammaMid = isMenu > 0.5 ? 0.69 : (isBar > 0.5 ? 0.72 : (isReg > 0.5 ? 0.76 : 0.78));
+        float gammaMid = isMenu > 0.5 ? 0.66 : (isBar > 0.5 ? 0.72 : (isReg > 0.5 ? 0.76 : 0.78));
         float gammaStart = isMenu > 0.5 ? 0.83 : 0.88;
         float gamma = mix(gammaStart, gammaMid, smoothstep(0.0, 0.5, op));
         half3 lifted = pow(max(rgb, half3(0.0001)), half3(gamma));
@@ -56,7 +56,7 @@ half3 applyLiquidGlassTone(half3 rgb, float dark, float op, float role) {
         float b = isBar > 0.5
             ? glassQuadCurve(0.10, 0.42, 0.94, op)
             : (isMenu > 0.5
-                ? glassQuadCurve(0.12, 0.34, 0.90, op)
+                ? glassQuadCurve(0.14, 0.42, 0.91, op)
                 : (isReg > 0.5 ? glassQuadCurve(0.10, 0.34, 0.86, op) : glassQuadCurve(0.08, 0.27, 0.88, op)));
         return mix(lifted, lightVeil, half(clamp(b, 0.0, 0.96)));
     } else {
@@ -151,7 +151,7 @@ data class LiquidGlassAppearance(val dark: Boolean, val opacity: Float = .5f) {
     // Floating controls preserve print and artwork. An open menu already diffuses its backdrop at zero.
     val controlBlurRadius = channel(.6f, 1.2f, 2.2f).dp
     // Calibrated in RenderEffect units against the 10–90% artwork edge under an open menu.
-    val menuBlurRadius = channel(15.5f, 19f, 24f).dp
+    val menuBlurRadius = channel(18f, 25f, 32f).dp
 
     internal fun menuOverlay(tint: Color): Color {
         val backing = if (dark) {

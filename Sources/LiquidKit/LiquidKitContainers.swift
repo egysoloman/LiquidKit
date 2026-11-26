@@ -116,7 +116,11 @@ public struct LiquidProgress: View {
     public let tint: LiquidRGBA
 
     public init(value: Double? = nil, label: String? = nil, tint: LiquidRGBA = .accentBlue) {
-        self.value = value.map { min(1.0, max(0.0, $0)) }
+        if let value {
+            self.value = min(1.0, max(0.0, value))
+        } else {
+            self.value = nil
+        }
         self.label = label
         self.tint = tint
     }

@@ -599,7 +599,7 @@ fun LiquidTabsPicker(
                 val active = option.id == selectedId
                 val highlighted = if (finger != null) idx == centerIdx.roundToInt().coerceIn(0, options.lastIndex) else active
                 val ink by animateColorAsState(
-                    if (active) activeInkColor else colors.ink.copy(alpha = .78f),
+                    if (highlighted) activeInkColor else colors.ink.copy(alpha = .78f),
                     tween(140),
                     label = "TabsPicker ink",
                 )

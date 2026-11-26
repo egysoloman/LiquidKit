@@ -109,4 +109,49 @@ final class LiquidKitTests: XCTestCase {
         let accessory = LiquidTabViewBottomAccessoryView { Text("Now Playing") }
         XCTAssertNotNil(accessory.body)
     }
+
+    @MainActor
+    func testSharedTransitionWrappersConstructCleanly() {
+        let heroItems = [
+            LiquidSharedHeroItem(
+                id: "refraction",
+                title: "光学折射",
+                subtitle: "AGSL 透镜",
+                badge: "AGSL",
+                systemImage: "drop.halffull",
+                tint: .accentBlue,
+                summary: "Real-time backdrop sampling"
+            ),
+            LiquidSharedHeroItem(
+                id: "morph",
+                title: "SDF 融球",
+                subtitle: "液态边缘融合",
+                badge: "SDF",
+                systemImage: "sparkles",
+                tint: .foldTeal,
+                summary: "Smoothstep optical morph"
+            ),
+        ]
+        XCTAssertEqual(LiquidHeroTransitionMode.allCases, [.matchedGeometry, .zoomNavigation])
+        XCTAssertEqual(LiquidGlassMorphMode.allCases, [.bounds, .liquidSDF])
+
+        let hero = LiquidSharedHeroView(items: heroItems, selectedId: .constant(nil), mode: .matchedGeometry)
+        XCTAssertNotNil(hero.body)
+
+        let track = LiquidSharedPlayerTrack(
+            id: "studio-1",
+            title: "Glass Harmonics",
+            artist: "LiquidStudio",
+            bpm: 120,
+            tint: .foldTeal,
+            progress: 1.5
+        )
+        XCTAssertEqual(track.progress, 1.0, accuracy: 1e-6)
+
+        let player = LiquidSharedPlayerMorphView(track: track, expanded: .constant(false), onTogglePlay: {})
+        XCTAssertNotNil(player.body)
+
+        let morph = LiquidSharedGlassMorphView(expanded: .constant(false), mode: .liquidSDF)
+        XCTAssertNotNil(morph.body)
+    }
 }

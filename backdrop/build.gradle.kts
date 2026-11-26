@@ -94,7 +94,7 @@ mavenPublishing {
         signAllPublications()
     }
 
-    coordinates("io.github.kyant0", "backdrop", "2.0.1")
+    coordinates("io.github.kyant0", "backdrop", "2.0.1-liquidkit.1")
 
     pom {
         name.set("Backdrop")

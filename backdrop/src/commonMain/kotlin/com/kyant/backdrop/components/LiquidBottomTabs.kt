@@ -153,7 +153,7 @@ internal fun LiquidBottomTabsLayout(
     val plateMix = if (appearance.dark) {
         lerp(0.14f, 0.94f, appearance.opacity.pow(0.75f))
     } else {
-        appearance.opacity.pow(tab.diffusionResponse.coerceAtLeast(.01f))
+        lerp(0.18f, 1f, appearance.opacity.pow(0.65f))
     }
     val clearMix = tab.clearLensDiffusionMix.coerceIn(0f, 1f) * clear * clear
     val lensMix = if (appearance.dark) {
@@ -167,7 +167,7 @@ internal fun LiquidBottomTabsLayout(
         val channel = (32f / 255f) / baseAlpha
         Color(channel, channel, channel, baseAlpha)
     } else Color(0xfffdfdfd).copy(alpha = lerp(.24f, 1f, backing))
-    val selectionInk = if (appearance.dark) Color.White.copy(alpha = .13f) else Color.Black.copy(alpha = .058f)
+    val selectionInk = if (appearance.dark) Color.White.copy(alpha = .13f) else Color.Black.copy(alpha = .092f)
     val haptics = rememberLiquidHaptics()
 
     BoxWithConstraints(modifier.height(height).pointerInput(tabsCount, rtl) {

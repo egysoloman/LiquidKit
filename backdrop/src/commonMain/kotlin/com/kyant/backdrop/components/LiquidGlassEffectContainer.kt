@@ -6,8 +6,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -17,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.isRuntimeShaderSupported
+import kotlin.math.abs
 
 @Stable
 internal class GlassEffectContainerState {
@@ -52,6 +56,7 @@ fun LiquidGlassEffectContainer(
     val hasShader = isRuntimeShaderSupported()
     val fill = if (hasShader) appearance.customTintOnly(surfaceColor) else appearance.overlay(surfaceColor)
     var origin by remember { mutableStateOf(Offset.Zero) }
+    val tintPath = remember { Path() }
 
     fun activeRects(): List<Pair<ToolbarPairSlot, Rect>> {
         val replaced = replacedState.value
@@ -98,8 +103,29 @@ fun LiquidGlassEffectContainer(
                     onDrawSurface = {
                         if (navigation) drawRect(appearance.navBarButtonFill(appearance.customTintOnly(surfaceColor)))
                         else if (fill != null) drawRect(fill)
+                        val slots = activeRects()
+                        for ((slot, r) in slots) {
+                            val slotTint = slot.group?.surfaceCustomTint ?: continue
+                            if (slotTint.alpha <= 0.001f) continue
+                            if (abs(r.width - r.height) <= 1f) {
+                                val featherRadius = (r.maxDimension * 0.56f).coerceAtLeast(1f)
+                                drawRect(
+                                    brush = Brush.radialGradient(
+                                        0f to slotTint,
+                                        0.82f to slotTint,
+                                        1f to slotTint.copy(alpha = 0f),
+                                        center = r.center,
+                                        radius = featherRadius,
+                                    ),
+                                )
+                            } else {
+                                tintPath.rewind()
+                                tintPath.addLiquidCapsule(r)
+                                clipPath(tintPath) { drawRect(slotTint) }
+                            }
+                        }
                         val brighten = !navigation && !appearance.dark
-                        for ((slot, r) in activeRects()) {
+                        for ((slot, r) in slots) {
                             val light = slot.group?.light ?: continue
                             if (light.pressProgress <= 0f) continue
                             light.drawLightInLobe(this, r, brightenBackdrop = brighten)

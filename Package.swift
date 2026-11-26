@@ -2,7 +2,7 @@
 import Foundation
 import PackageDescription
 
-let skipEnabled = ProcessInfo.processInfo.environment["SKIP_BRIDGE"] == "1"
+let skipEnabled = ProcessInfo.processInfo.environment["LIQUIDKIT_NO_SKIP"] != "1"
 
 var packageDependencies: [Package.Dependency] = []
 var targetDependencies: [Target.Dependency] = []
@@ -10,8 +10,8 @@ var targetPlugins: [Target.PluginUsage] = []
 
 if skipEnabled {
     packageDependencies += [
-        .package(url: "https://source.skip.tools/skip.git", from: "1.6.0"),
-        .package(url: "https://source.skip.tools/skip-ui.git", from: "1.30.0"),
+        .package(url: "https://github.com/skiptools/skip.git", from: "1.9.23"),
+        .package(url: "https://github.com/skiptools/skip-ui.git", from: "1.0.0"),
     ]
     targetDependencies += [
         .product(name: "SkipUI", package: "skip-ui"),

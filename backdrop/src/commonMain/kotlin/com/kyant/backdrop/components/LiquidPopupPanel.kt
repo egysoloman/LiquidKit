@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.AbsoluteAlignment
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -59,10 +60,17 @@ internal fun BoxScope.LiquidPopupPanel(
     val height = minOf(desired, available.coerceAtLeast(1.dp))
     val trailing = (left + right) / 2 > hostWidth / 2
     val contact = touchX?.let { with(density) { it.toDp() } }
-    val x = (if (contact != null) contact - width / 2 else if (right - left >= width) {
+    val computedX = (if (contact != null) contact - width / 2 else if (right - left >= width) {
         if (direction == LayoutDirection.Ltr) left else right - width
     } else if (trailing) right - width else left).coerceIn(leftLimit, maxOf(leftLimit, rightLimit - width))
-    val y = (if (up) aboveEnd - height else belowStart).coerceIn(topLimit, maxOf(topLimit, bottomLimit - height))
+    val computedY = (if (up) aboveEnd - height else belowStart).coerceIn(topLimit, maxOf(topLimit, bottomLimit - height))
+    var pinnedPanelPos by remember(state) { mutableStateOf<Pair<Dp, Dp>?>(null) }
+    if (state.expanded) SideEffect { pinnedPanelPos = computedX to computedY }
+    val (x, y) = if (!state.expanded && fromBorderlessTrigger) {
+        pinnedPanelPos ?: (computedX to computedY)
+    } else {
+        computedX to computedY
+    }
     if (fromBorderlessTrigger) {
         val alignment = when {
             up && trailing -> LiquidMorphAlignment.BottomTrailing
@@ -86,12 +94,16 @@ internal fun BoxScope.LiquidPopupPanel(
             expandedCornerRadius = minOf(metrics.radius, height / 2),
             config = remember(alignment, x, y, seedX, seedY, tokens) { LiquidMorphConfig(alignment = alignment,
                 openResponse = tokens.borderlessOpenResponse, closeResponse = tokens.borderlessCloseResponse,
-                closeDamping = 0.78f,
+                closeDamping = 0.96f,
+                menuOpeningRebound = true,
                 expandedOffsetXDp = (x - seedX).value, expandedOffsetYDp = (y - seedY).value, showsCollapsedSurface = false) },
             slowMo = slowMotion, initialExpanded = false, handleSurfaceTap = false, surfaceTouchEnabled = false,
             elasticStretchPx = motion.pose.stretch,
             elasticCenterPx = motion.pose.center,
-            onSourceRestored = onClosed, collapsedContent = {},
+            onSourceRestored = {
+                pinnedPanelPos = null
+                onClosed()
+            }, collapsedContent = {},
             expandedContent = {
                 LiquidMenuPanel(state, items, Modifier.fillMaxSize(), actions, leadingCheckAtRoot = leadingCheckAtRoot)
             })
@@ -125,13 +137,16 @@ internal fun BoxScope.LiquidPopupPanel(
     val shiftX = if (trailing) -(liveW - width) * .78f else -(liveW - width) * .22f
     val shiftY = if (up) -(liveH - height) * .78f else -(liveH - height) * .22f
     val shape = RoundedCornerShape(minOf(metrics.radius, liveH / 2))
-    Box(Modifier.align(AbsoluteAlignment.TopLeft).absoluteOffset(x + shiftX, y + shiftY).size(liveW, liveH).graphicsLayer {
-        compositingStrategy = CompositingStrategy.ModulateAlpha
-        this.alpha = alpha.value
-        scaleX = scale.value
-        scaleY = scale.value
-        transformOrigin = pivot
-    }.menuPanelMotion(state, 0, 0.dp, trailing, up, externalMotion = motion)) {
+    Box(
+        Modifier.align(AbsoluteAlignment.TopLeft).absoluteOffset(x + shiftX, y + shiftY).size(liveW, liveH).graphicsLayer {
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+            this.alpha = alpha.value
+            scaleX = scale.value
+            scaleY = scale.value
+            transformOrigin = pivot
+        }.menuPanelMotion(state, 0, 0.dp, trailing, up, externalMotion = motion),
+        contentAlignment = Alignment.Center,
+    ) {
         val hasShader = isRuntimeShaderSupported()
         Spacer(Modifier.matchParentSize().liquidGlassShadow(shape, 1f, radius = metrics.radius)
             .drawBackdrop(backdrop, { shape }, effects = { liquidSurfaceLens(appearance.menuBlurRadius, appearance, LiquidGlassRole.Menu) },
@@ -140,7 +155,11 @@ internal fun BoxScope.LiquidPopupPanel(
         LiquidMenuPanel(
             state,
             items,
-            Modifier.fillMaxSize().graphicsLayer { this.alpha = rows.value }.diffuseContent(replacement, { 1f - rows.value }),
+            Modifier.requiredSize(width, height).graphicsLayer {
+                scaleX = (liveW / width).coerceIn(0.92f, 1.08f)
+                scaleY = (liveH / height).coerceIn(0.92f, 1.08f)
+                this.alpha = rows.value
+            }.diffuseContent(replacement, { 1f - rows.value }),
             actions,
             leadingCheckAtRoot = leadingCheckAtRoot,
         )

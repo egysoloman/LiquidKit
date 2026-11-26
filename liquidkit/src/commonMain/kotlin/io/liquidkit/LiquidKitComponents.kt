@@ -703,7 +703,7 @@ fun LiquidKitActionSheet(
 fun LiquidKitSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    backdrop: Backdrop? = LocalLiquidKitModalBackdrop.current,
+    backdrop: Backdrop? = null,
     title: String? = null,
     doneLabel: String? = "完成",
     tint: Color = Color(0xff007aff),

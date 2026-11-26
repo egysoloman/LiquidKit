@@ -51,7 +51,7 @@ public struct LiquidFloatingTabBar: View {
         ComposeView { context in
             let specs = tabs.map { SkipLiquidKitTabSpec(id: $0.id, title: $0.title, systemImage: $0.systemImage) }
             SkipLiquidKitTabBar(
-                tabs: specs,
+                tabs: specs.toList(),
                 selectedId: selectedId,
                 tint: tint.composeColor,
                 minimized: minimized,
@@ -302,20 +302,23 @@ public struct LiquidAlertModal: View {
         #if SKIP
         if isPresented {
             ComposeView { _ in
+                let specs = actions.map { action in
+                    SkipLiquidKitAlertActionSpec(
+                        label: action.label,
+                        role: action.role.rawValue,
+                        enabled: action.enabled,
+                        onClick: {
+                            action.handler()
+                            isPresented = false
+                        }
+                    )
+                }.toList()
                 SkipLiquidKitAlert(
                     title: title,
                     message: message,
-                    actionLabels: actions.map { $0.label },
-                    actionRoles: actions.map { $0.role.rawValue },
-                    actionEnabled: actions.map { $0.enabled },
-                    onAction: { idx in
-                        if idx >= 0 && idx < actions.count {
-                            actions[idx].handler()
-                        }
-                        isPresented = false
-                    },
-                    onDismiss: { isPresented = false },
-                    tint: tint.composeColor
+                    actions: specs,
+                    tint: tint.composeColor,
+                    onDismiss: { isPresented = false }
                 )
             }
         }
@@ -369,21 +372,24 @@ public struct LiquidActionSheetModal: View {
         #if SKIP
         if isPresented {
             ComposeView { _ in
+                let specs = actions.map { action in
+                    SkipLiquidKitAlertActionSpec(
+                        label: action.label,
+                        role: action.role.rawValue,
+                        enabled: action.enabled,
+                        onClick: {
+                            action.handler()
+                            isPresented = false
+                        }
+                    )
+                }.toList()
                 SkipLiquidKitActionSheet(
                     title: title,
                     message: message,
                     cancelLabel: cancelLabel,
-                    actionLabels: actions.map { $0.label },
-                    actionRoles: actions.map { $0.role.rawValue },
-                    actionEnabled: actions.map { $0.enabled },
-                    onAction: { idx in
-                        if idx >= 0 && idx < actions.count {
-                            actions[idx].handler()
-                        }
-                        isPresented = false
-                    },
-                    onDismiss: { isPresented = false },
-                    tint: tint.composeColor
+                    actions: specs,
+                    tint: tint.composeColor,
+                    onDismiss: { isPresented = false }
                 )
             }
         }

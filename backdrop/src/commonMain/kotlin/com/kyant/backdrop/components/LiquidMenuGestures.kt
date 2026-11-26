@@ -85,7 +85,7 @@ internal fun Modifier.registerMenuTrigger(
         var wasActive by remember { mutableStateOf(false) }
         var reboundSeq by remember { mutableIntStateOf(0) }
         val rebound = remember { Animatable(1f) }
-        val triggerLanding = wasActive && !state.expanded && (state.sourceTrigger !== trigger || cover < 0.85f)
+        val triggerLanding = wasActive && !state.expanded && (state.sourceTrigger !== trigger || cover < 0.35f)
         SideEffect {
             if (activeHere) {
                 wasActive = true
@@ -102,9 +102,10 @@ internal fun Modifier.registerMenuTrigger(
         }
         LaunchedEffect(reboundSeq) {
             if (reboundSeq > 0) {
-                rebound.snapTo(1.14f)
-                trigger.borderlessReboundScale = 1.14f
-                rebound.animateTo(1f, spring(dampingRatio = 0.46f, stiffness = 460f)) {
+                val peak = 1.085f
+                rebound.snapTo(peak)
+                trigger.borderlessReboundScale = peak
+                rebound.animateTo(1f, spring(dampingRatio = 0.54f, stiffness = 420f)) {
                     trigger.borderlessReboundScale = value
                 }
                 trigger.borderlessReboundScale = 1f
@@ -126,7 +127,10 @@ internal fun Modifier.registerMenuTrigger(
                 if (firstCapture) drawContent()
             } else if (!hidden || group != null) drawContent()
         }
-        .onGloballyPositioned { trigger.layout = it }.then(ink).semantics {
+        .onGloballyPositioned {
+            trigger.layout = it
+            trigger.liveBounds = it.visibleBounds()
+        }.then(ink).semantics {
         if (activation == LiquidMenuActivation.Press) onClick { state.openFrom(trigger); true }
         onLongClick {
             state.openFrom(trigger)
@@ -185,11 +189,22 @@ internal fun Modifier.menuGestures(
                     if (!transferred) state.finishHold()
                 }
             } else {
-                down.consume()
                 if (!state.containsPanel(start)) {
                     state.dismiss()
+                    // Allow outside drags/scrolls/swipe-back to pass through uninterrupted while swallowing plain taps.
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val touch = event.changes.firstOrNull { it.id == down.id } ?: break
+                        val dist = if (layout.isAttached) (layout.localToRoot(touch.position) - start).getDistance() else 0f
+                        if (dist > slop) break
+                        if (!touch.pressed) {
+                            touch.consume()
+                            break
+                        }
+                    }
                     return@awaitEachGesture
                 }
+                down.consume()
                 if (state.panels[state.activeLevel].visibleBounds()?.contains(start) != true) {
                     state.back()
                     return@awaitEachGesture
@@ -256,10 +271,9 @@ internal fun Modifier.menuGestures(
                     }
                     previous = at
                     val insidePanel = bounds?.contains(at) == true
-                    val outsideRest = computeMenuBoundaryPull(at, state.restPanelBounds[level] ?: bounds) != Offset.Zero
                     if (change.pressed) {
                         state.moveHold(at)
-                        if (!insidePanel || outsideRest) {
+                        if (!insidePanel) {
                             state.clearHoldHighlight()
                         } else if (openedByThisPress && scrollable) {
                             // Scrollable long menus only stretch on hold-drag without highlighting items.

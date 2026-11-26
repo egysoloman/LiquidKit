@@ -155,11 +155,12 @@ fun <T> LiquidNavigationTransition(
                 val rectSize = Size(edgeWidth, size.height)
                 onDrawWithContent {
                     drawContent()
-                    if (isTransitioning && isTopLayer) {
+                    if (navTransition.isRunning && isTopLayer) {
                         drawRect(brush = edgeBrush, topLeft = topLeft, size = rectSize)
                     }
-                    if (coverFraction > .001f) {
-                        drawRect(Color.Black.copy(alpha = (maxDim * coverFraction).coerceIn(0f, 1f)))
+                    if (navTransition.isRunning && coverFraction > .001f) {
+                        val effectiveCover = coverFraction * coverFraction
+                        drawRect(Color.Black.copy(alpha = (maxDim * effectiveCover).coerceIn(0f, 1f)))
                     }
                 }
             }

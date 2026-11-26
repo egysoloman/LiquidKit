@@ -20,6 +20,7 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -114,6 +115,16 @@ internal fun computeSheetBackgroundDepth(
 ): Float = if (largeFraction <= mediumFraction) 0f
 else ((fraction - mediumFraction) / (largeFraction - mediumFraction)).coerceIn(0f, 1f)
 
+internal fun computeSheetSurfaceAlpha(
+    dark: Boolean,
+    glassOpacity: Float,
+    largeProgress: Float,
+): Float {
+    val op = glassOpacity.coerceIn(0f, 1f)
+    val base = if (dark) floatLerp(.46f, .74f, op) else floatLerp(.50f, .76f, op)
+    return floatLerp(base, 1f, largeProgress.coerceIn(0f, 1f))
+}
+
 internal class LiquidModalEntry {
     var content by mutableStateOf<@Composable () -> Unit>({})
 }
@@ -143,6 +154,7 @@ internal class LiquidModalRegistry {
     val entries = mutableStateListOf<LiquidModalEntry>()
     val menus = mutableStateListOf<LiquidModalMenuEntry>()
     var sheetBackgroundDepth by mutableFloatStateOf(0f)
+    var sheetBackgroundDepthProvider by mutableStateOf<(() -> Float)?>(null)
 }
 
 internal val LocalLiquidModalRegistry = staticCompositionLocalOf<LiquidModalRegistry?> { null }
@@ -257,7 +269,6 @@ fun LiquidModalHost(modifier: Modifier = Modifier, content: @Composable BoxScope
             LocalMenuMetrics provides metrics,
             LocalMenuSafeBounds provides safe,
         ) {
-            val hasSheetDepth by remember(registry) { derivedStateOf { registry.sheetBackgroundDepth > 0.001f } }
             val hasModalOrMenu by remember(registry) {
                 derivedStateOf {
                     registry.entries.isNotEmpty() || registry.menus.any {
@@ -265,29 +276,40 @@ fun LiquidModalHost(modifier: Modifier = Modifier, content: @Composable BoxScope
                     }
                 }
             }
+            val statusBarTopPx = WindowInsets.statusBars.getTop(density).toFloat()
             val liveModalBackdrop = rememberLayerBackdrop()
-            Box(Modifier.matchParentSize().layerBackdrop(liveModalBackdrop, enabled = hasModalOrMenu)) {
-                if (hasSheetDepth) {
-                    Spacer(Modifier.matchParentSize().background(Color.Black))
-                }
+            Box(
+                Modifier.matchParentSize()
+                    .layerBackdrop(liveModalBackdrop, enabled = hasModalOrMenu)
+                    .drawBehind {
+                        val depth = (registry.sheetBackgroundDepthProvider?.invoke() ?: registry.sheetBackgroundDepth).coerceIn(0f, 1f)
+                        if (depth > 0.001f) drawRect(Color.Black)
+                    },
+            ) {
                 Box(
                     Modifier.matchParentSize()
                         .graphicsLayer {
-                            val depth = registry.sheetBackgroundDepth.coerceIn(0f, 1f)
+                            val depth = (registry.sheetBackgroundDepthProvider?.invoke() ?: registry.sheetBackgroundDepth).coerceIn(0f, 1f)
+                            transformOrigin = TransformOrigin(0.5f, 0f)
                             if (depth > 0.001f) {
-                                val scale = 1f - .065f * depth
+                                val scale = 1f - .08f * depth
                                 scaleX = scale
                                 scaleY = scale
-                                translationY = 10.dp.toPx() * depth
+                                translationY = (statusBarTopPx * .72f + 4.dp.toPx()) * depth
                                 shape = RoundedCornerShape(22.dp * depth)
                                 clip = true
+                            } else {
+                                scaleX = 1f
+                                scaleY = 1f
+                                translationY = 0f
+                                clip = false
                             }
                         }
                         .drawWithContent {
                             drawContent()
-                            val depth = registry.sheetBackgroundDepth.coerceIn(0f, 1f)
+                            val depth = (registry.sheetBackgroundDepthProvider?.invoke() ?: registry.sheetBackgroundDepth).coerceIn(0f, 1f)
                             if (depth > 0.001f) {
-                                drawRect(Color.Black.copy(alpha = .14f * depth))
+                                drawRect(Color.Black.copy(alpha = .16f * depth))
                             }
                         },
                 ) {
@@ -400,34 +422,71 @@ internal fun Modifier.liquidModalSurface(
     blurRadius: Dp? = null,
     style: ModalSurfaceStyle = ModalSurfaceStyle.FloatingGlass,
     scrimTint: Float = 0f,
+    opaqueProgress: Float = 0f,
 ): Modifier {
     val appearance = liquidGlassAppearance()
     val floating = style == ModalSurfaceStyle.FloatingGlass
     val rim = rememberLiquidRimHighlight(appearance.dark, layeredEdge = false)
     val liveBackdrop = LocalLiquidModalBackdrop.current
-    val resolvedBackdrop = if (liveBackdrop != null && (backdrop == null || backdrop is SolidColorBackdrop)) {
+    val resolvedBackdrop = if (liveBackdrop != null && (backdrop == null || backdrop is SolidColorBackdrop || !floating)) {
         liveBackdrop
     } else {
         backdrop
     }
+    if (!floating) {
+        val solid = opaqueProgress.coerceIn(0f, 1f)
+        val glassWeight = (1f - solid).coerceIn(0f, 1f)
+        val solidSurface = if (appearance.dark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+        if (solid >= 0.995f) {
+            return liquidGlassShadow(shape, elevation, radius = cornerRadius)
+                .clip(shape)
+                .background(solidSurface)
+        }
+        return if (resolvedBackdrop != null) {
+            val effectiveBlur = (blurRadius ?: floatLerp(12f, 20f, appearance.opacity).dp) * (0.35f + 0.65f * glassWeight)
+            val sheetAlpha = computeSheetSurfaceAlpha(appearance.dark, appearance.opacity, solid)
+            val veil = solidSurface.copy(alpha = sheetAlpha)
+            liquidGlassShadow(shape, elevation, radius = cornerRadius)
+                .drawBackdrop(
+                    backdrop = resolvedBackdrop,
+                    shape = { shape },
+                    effects = {
+                        if (glassWeight > 0.05f) vibrancy()
+                        blur(effectiveBlur.toPx())
+                        if (glassWeight >= 0.02f) {
+                            lens(
+                                refractionHeight = (12.dp * glassWeight).toPx(),
+                                refractionAmount = (22.dp * glassWeight).toPx(),
+                                depthEffect = false,
+                                chromaticAberration = false,
+                            )
+                        }
+                    },
+                    highlight = {
+                        rim.copy(
+                            alpha = (if (appearance.dark) .26f else .44f) * glassWeight,
+                        )
+                    },
+                    shadow = null,
+                    onDrawSurface = {
+                        if (scrimTint > 0f) {
+                            drawRect(Color.Black.copy(alpha = scrimTint * if (appearance.dark) .22f else .32f))
+                        }
+                        drawRect(veil)
+                    },
+                )
+        } else {
+            val sheetAlpha = computeSheetSurfaceAlpha(appearance.dark, appearance.opacity, solid)
+            liquidGlassShadow(shape, elevation, radius = cornerRadius)
+                .clip(shape)
+                .background(solidSurface.copy(alpha = sheetAlpha))
+        }
+    }
     return if (resolvedBackdrop != null) {
-        val effectiveBlur = blurRadius ?: if (floating) {
-            floatLerp(16f, 26f, appearance.opacity).dp
-        } else {
-            floatLerp(10f, 18f, appearance.opacity).dp
-        }
-        val veil = if (floating) {
-            if (appearance.dark) Color(0xFF1F2023).copy(alpha = floatLerp(.54f, .80f, appearance.opacity))
-            else Color(0xFFFAFBFD).copy(alpha = floatLerp(.52f, .82f, appearance.opacity))
-        } else {
-            if (appearance.dark) Color(0xFF1C1C1E).copy(alpha = floatLerp(.76f, .94f, appearance.opacity))
-            else Color(0xFFF2F3F7).copy(alpha = floatLerp(.78f, .94f, appearance.opacity))
-        }
-        val specularSheen = if (floating) {
-            if (appearance.dark) DarkFloatingSheenBrush else LightFloatingSheenBrush
-        } else {
-            null
-        }
+        val effectiveBlur = blurRadius ?: floatLerp(16f, 26f, appearance.opacity).dp
+        val veil = if (appearance.dark) Color(0xFF1F2023).copy(alpha = floatLerp(.54f, .80f, appearance.opacity))
+        else Color(0xFFFAFBFD).copy(alpha = floatLerp(.52f, .82f, appearance.opacity))
+        val specularSheen = if (appearance.dark) DarkFloatingSheenBrush else LightFloatingSheenBrush
         liquidGlassShadow(shape, elevation, radius = cornerRadius)
             .drawBackdrop(
                 backdrop = resolvedBackdrop,
@@ -435,40 +494,23 @@ internal fun Modifier.liquidModalSurface(
                 effects = {
                     vibrancy()
                     blur(effectiveBlur.toPx())
-                    if (floating) {
-                        lens(
-                            refractionHeight = 10.dp.toPx(),
-                            refractionAmount = 16.dp.toPx(),
-                            depthEffect = false,
-                            chromaticAberration = false,
-                        )
-                    } else {
-                        lens(
-                            refractionHeight = 12.dp.toPx(),
-                            refractionAmount = 22.dp.toPx(),
-                            depthEffect = false,
-                            chromaticAberration = false,
-                        )
-                    }
+                    lens(
+                        refractionHeight = 10.dp.toPx(),
+                        refractionAmount = 16.dp.toPx(),
+                        depthEffect = false,
+                        chromaticAberration = false,
+                    )
                 },
                 highlight = {
-                    rim.copy(
-                        alpha = if (floating) {
-                            if (appearance.dark) .22f else .46f
-                        } else {
-                            if (appearance.dark) .26f else .44f
-                        },
-                    )
+                    rim.copy(alpha = if (appearance.dark) .22f else .46f)
                 },
                 shadow = null,
                 onDrawSurface = {
-                    if (scrimTint > 0f && (!floating || appearance.dark)) {
-                        drawRect(Color.Black.copy(alpha = scrimTint * if (appearance.dark) .22f else .32f))
+                    if (scrimTint > 0f && appearance.dark) {
+                        drawRect(Color.Black.copy(alpha = scrimTint * .22f))
                     }
                     drawRect(veil)
-                    if (specularSheen != null) {
-                        drawRect(specularSheen)
-                    }
+                    drawRect(specularSheen)
                 },
             )
     } else {
@@ -511,18 +553,31 @@ fun LiquidSheet(
         val scrimAnim = remember { Animatable(0f) }
         var closing by remember { mutableStateOf(false) }
 
-        val depthStart = remember(ordered) {
-            ordered.firstOrNull { it != ordered.last() }?.fraction ?: minOf(LiquidSheetDetent.Medium.fraction, ordered.last().fraction * .6f)
+        val singleLarge = ordered.size == 1 && ordered.first().fraction >= 0.85f
+        val depthStart = remember(ordered, singleLarge) {
+            if (singleLarge) 0.15f
+            else ordered.firstOrNull { it != ordered.last() }?.fraction
+                ?: minOf(LiquidSheetDetent.Medium.fraction, ordered.last().fraction * .6f)
         }
         val depthEnd = ordered.last().fraction
+        val largeProgress = if (singleLarge) 1f else computeSheetBackgroundDepth(fractionAnim.value, depthStart, depthEnd)
         SideEffect {
             if (registry != null) {
                 registry.sheetBackgroundDepth =
                     computeSheetBackgroundDepth(fractionAnim.value, depthStart, depthEnd) * revealAnim.value.coerceIn(0f, 1f)
             }
         }
-        DisposableEffect(registry) {
-            onDispose { registry?.sheetBackgroundDepth = 0f }
+        DisposableEffect(registry, depthStart, depthEnd) {
+            val provider: () -> Float = {
+                computeSheetBackgroundDepth(fractionAnim.value, depthStart, depthEnd) * revealAnim.value.coerceIn(0f, 1f)
+            }
+            registry?.sheetBackgroundDepthProvider = provider
+            onDispose {
+                if (registry?.sheetBackgroundDepthProvider === provider) {
+                    registry.sheetBackgroundDepthProvider = null
+                }
+                registry?.sheetBackgroundDepth = 0f
+            }
         }
 
         fun finishDismiss() {
@@ -566,17 +621,21 @@ fun LiquidSheet(
             val corner = sheetTokens.corner
             val shape = RoundedCornerShape(topStart = corner, topEnd = corner)
 
-            if (hasInWindowHost || scrimAnim.value > 0f) {
+            val currentHeightFraction = fractionAnim.value.coerceIn(0f, 1f)
+            val statusBarTopPx = WindowInsets.statusBars.getTop(density).toFloat()
+            val maxSheetHeightPx = (containerHeightPx - statusBarTopPx - with(density) { 16.dp.toPx() }).coerceAtLeast(1f)
+            val sheetHeightPx = minOf(containerHeightPx * currentHeightFraction, maxSheetHeightPx).coerceAtLeast(1f)
+            val sheetHeightDp = with(density) { sheetHeightPx.toDp() }
+            val heightVis = (currentHeightFraction / ordered.first().fraction.coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+            val liveScrim = scrimAnim.value.coerceIn(0f, 1f) * heightVis * floatLerp(0.42f, 1f, largeProgress)
+
+            if (hasInWindowHost || liveScrim > 0f) {
                 Spacer(
                     Modifier.matchParentSize()
-                        .background(Color.Black.copy(alpha = scrimAnim.value.coerceIn(0f, 1f)))
+                        .background(Color.Black.copy(alpha = liveScrim))
                         .clickable(interactionSource = null, indication = null) { finishDismiss() },
                 )
             }
-
-            val currentHeightFraction = fractionAnim.value.coerceIn(0f, 1f)
-            val sheetHeightPx = (containerHeightPx * currentHeightFraction).coerceAtLeast(1f)
-            val sheetHeightDp = with(density) { sheetHeightPx.toDp() }
             val velocityTracker = remember { VelocityTracker() }
             val dismissVelocityPx = with(density) { sheetTokens.dismissVelocity.toPx() }
             val bodyScroll = rememberScrollState()
@@ -688,6 +747,7 @@ fun LiquidSheet(
                                 elevation = 0f,
                                 cornerRadius = corner,
                                 style = ModalSurfaceStyle.SheetSurface,
+                                opaqueProgress = largeProgress,
                             ),
                     )
                     CompositionLocalProvider(LocalLiquidSurfaceBackdrop provides sheetBgBackdrop) {

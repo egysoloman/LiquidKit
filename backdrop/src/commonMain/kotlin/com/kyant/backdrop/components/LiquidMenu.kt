@@ -304,7 +304,7 @@ private fun BranchPanel(state: LiquidMenuState, branch: MenuBranch, backdrop: Ba
             if (branch.open) {
                 branch.reveal.animateTo(1f, menuTokens.branchOpen.spec)
             } else {
-                branch.reveal.animateTo(0f, tween(menuTokens.branchCloseMillis))
+                branch.reveal.animateTo(0f, GlassSpring.swiftUI(0.24f, 0.92f).spec)
                 state.retire(branch)
             }
     }
@@ -315,8 +315,8 @@ private fun BranchPanel(state: LiquidMenuState, branch: MenuBranch, backdrop: Ba
             // During a stack return the outer layer moves this whole coordinate system.
             if (!state.dismissing) origin = it.positionInRoot()
         })
-        val anchor = branch.anchor.translate(-origin)
-        val parent = branch.parentPanel.translate(-origin)
+        val anchor = (branch.source.layout.visibleBounds() ?: branch.anchor).translate(-origin)
+        val parent = (state.panels[branch.level.dropLast(1)].visibleBounds() ?: branch.parentPanel).translate(-origin)
         val gutter = with(density) { 8.dp.toPx() }
         val safe = LocalMenuSafeBounds.current
         val topSafe = safe.top + gutter
@@ -356,7 +356,13 @@ private fun BranchPanel(state: LiquidMenuState, branch: MenuBranch, backdrop: Ba
                     liquidGlassTone(appearance, LiquidGlassRole.Menu)
                 }, onDrawSurface = { if (menuFill != null) drawRect(menuFill) }))
             CompositionLocalProvider(LocalLiquidContentColor provides branch.sourceInk) {
-                GlassForeground(Modifier.fillMaxSize()) { sampled ->
+                GlassForeground(
+                    Modifier.fillMaxSize().graphicsLayer {
+                        val s = p.coerceIn(0f, 1f)
+                        scaleX = lerp(1f, (currentWidth / width.coerceAtLeast(1f)).coerceIn(0.92f, 1.08f), s)
+                        scaleY = lerp(1f, (h / fullHeight.coerceAtLeast(1f)).coerceIn(0.92f, 1.08f), s)
+                    },
+                ) { sampled ->
                     MenuRows(
                         state, branch.level, branch.item.children, emptyList(), branch,
                         if (ink == Color.Unspecified) sampled else ink, rowHeight,
@@ -470,7 +476,7 @@ private fun MenuRows(
             .onGloballyPositioned { panel = it; state.panels[level] = it }
             .graphicsLayer { alpha = dim }.then(follow),
         state = scroll,
-        contentPadding = PaddingValues(start = inset, top = inset, end = inset, bottom = metrics.inset),
+        contentPadding = PaddingValues(start = inset, top = inset, end = inset, bottom = if (header != null) inset else metrics.inset),
     ) {
         if (header != null) item(key = "header") {
             MenuCell(state, level, header.item, ink, Modifier.fillMaxWidth().height(rowHeight),
@@ -484,12 +490,8 @@ private fun MenuRows(
                 } }
             }
         }
-        itemsIndexed(items, key = { _, item -> "row:" + item.key }) { i, item ->
-            val cover = coveredIndices.filter { it.first in 0..i }
-            Column(incoming.graphicsLayer {
-                val reveal = cover.maxOfOrNull { it.second.reveal.value } ?: 0f
-                alpha = (1f - reveal / .72f).coerceIn(0f, 1f)
-            }) {
+        itemsIndexed(items, key = { _, item -> "row:" + item.key }) { _, item ->
+            Column(incoming) {
                 if (item.startsSection) MenuDivider(metrics, ink)
                 val height = if (item.subtitle == null) rowHeight else maxOf(metrics.subtitleRow, rowHeight)
                 val child = covering.firstOrNull { it.item.key == item.key }
@@ -560,16 +562,16 @@ internal data class MenuLabelStyle(
 internal fun MenuRowLabel(style: MenuLabelStyle) {
     val (item, ink, rootRow, leadingCheck, progress) = style
     val metrics = liquidMenuMetrics()
-    val gap = 13.dp * metrics.scale
-    val startPadding = lerp(if (leadingCheck && rootRow) 10f else if (rootRow) 16f else 10f, 16f, progress).dp * metrics.scale
-    val endPadding = lerp(if (rootRow) 16f else 10f, 16f, progress).dp * metrics.scale
+    val gap = 11.dp * metrics.scale
+    val startPadding = lerp(if (leadingCheck && rootRow) 10f else if (rootRow) 14f else 10f, 14f, progress).dp * metrics.scale
+    val endPadding = lerp(if (rootRow) 16f else 12f, 14f, progress).dp * metrics.scale
     val weight = FontWeight(lerp(500f, 600f, progress).roundToInt())
     Row(Modifier.fillMaxWidth().padding(start = startPadding, end = endPadding), verticalAlignment = Alignment.CenterVertically) {
         if (leadingCheck) {
             val remaining = 1f - progress
-            Box(Modifier.width(13.dp * metrics.scale * remaining), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(12.dp * metrics.scale * remaining), contentAlignment = Alignment.Center) {
                 if (item.checked) LiquidIcon(LiquidSymbol.Check, ink.copy(alpha = ink.alpha * remaining),
-                    Modifier.size(13.dp * metrics.scale * remaining))
+                    Modifier.size(12.dp * metrics.scale * remaining))
             }
             Spacer(Modifier.width(6.dp * metrics.scale * remaining))
         }

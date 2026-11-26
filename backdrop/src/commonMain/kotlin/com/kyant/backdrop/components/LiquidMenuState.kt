@@ -42,8 +42,9 @@ internal class MenuTrigger(val activation: LiquidMenuActivation, val beforeOpen:
     var borderlessHoldMillis: Long? = null
     var previewShape by mutableStateOf<RoundedCornerShape?>(null)
     var borderlessReboundScale by mutableFloatStateOf(1f)
+    var liveBounds by mutableStateOf<Rect?>(null)
     var toolbar: ToolbarTouchGroup? = null
-    fun fullBounds(): Rect? = layout?.takeIf { it.isAttached }?.let { Rect(it.positionInRoot(), it.size.toSize()) }
+    fun fullBounds(): Rect? = liveBounds ?: layout?.takeIf { it.isAttached }?.let { Rect(it.positionInRoot(), it.size.toSize()) }
 }
 
 internal class MenuRow(val level: List<String>, val header: Boolean, var item: LiquidMenuItem) {
@@ -67,11 +68,11 @@ internal class MenuBranch(
     val reveal = Animatable(0f)
 }
 
-internal class MenuStackReturn(val initial: Rect, val stack: Rect, val trigger: Rect, val body: LiquidMorphBody?) {
+internal class MenuStackReturn(val initial: Rect, val stack: Rect, val trigger: () -> Rect, val body: LiquidMorphBody?) {
     val fallback = Animatable(1f)
 
     fun bounds(): Rect? = if (body != null) body.boundsInRoot()
-        else androidx.compose.ui.geometry.lerp(trigger, initial, fallback.value)
+        else androidx.compose.ui.geometry.lerp(trigger(), initial, fallback.value)
 }
 
 internal fun LayoutCoordinates?.visibleBounds(): Rect? =
@@ -183,6 +184,12 @@ class LiquidMenuState internal constructor(private val onSelect: (LiquidMenuItem
         expanded = true
     }
 
+    internal fun currentAnchorBounds(): Rect? =
+        sourceTrigger?.liveBounds ?: sourceTrigger?.layout.visibleBounds() ?: openingBounds
+
+    internal fun currentGroupBounds(): Rect? =
+        sourceTrigger?.toolbar?.liveBounds ?: sourceTrigger?.toolbar?.layout.visibleBounds() ?: openingGroupBounds
+
     fun dismiss() {
         if (!expanded) return
         finishHold()
@@ -190,13 +197,13 @@ class LiquidMenuState internal constructor(private val onSelect: (LiquidMenuItem
         if (branches.isNotEmpty()) {
             val live = rootBody?.boundsInRoot()
             val initial = live ?: branches.first().parentPanel
-            val destination = openingBounds ?: Rect(initial.topRight, initial.topRight)
+            val fallback = currentAnchorBounds() ?: Rect(initial.topRight, initial.topRight)
             val stack = branches.fold(initial) { union, branch ->
                 val panel = panels[branch.level].visibleBounds() ?: branch.anchor
                 Rect(minOf(union.left, panel.left), minOf(union.top, panel.top),
                     maxOf(union.right, panel.right), maxOf(union.bottom, panel.bottom))
             }
-            stackReturn = MenuStackReturn(initial, stack, destination, rootBody.takeIf { live != null })
+            stackReturn = MenuStackReturn(initial, stack, { currentAnchorBounds() ?: fallback }, rootBody.takeIf { live != null })
         }
         expanded = false
     }
@@ -268,9 +275,15 @@ class LiquidMenuState internal constructor(private val onSelect: (LiquidMenuItem
 
     private fun hitTest(at: Offset) {
         val level = activeLevel
-        val row = rows.firstOrNull { row ->
-            row.level == level && row.item.enabled && row.layout.visibleBounds()?.contains(at) == true
+        val direct = rows.firstOrNull { row ->
+            row.level == level && row.layout.visibleBounds()?.contains(at) == true
         }
+        val byBand = direct ?: if (panels[level].visibleBounds()?.contains(at) == true) {
+            rows.firstOrNull { row ->
+                row.level == level && row.layout.visibleBounds()?.let { at.y in it.top..it.bottom } == true
+            }
+        } else null
+        val row = byBand?.takeIf { it.item.enabled }
         highlighted = row
         if (row != null) finishHold()
         val pending = dwell
@@ -309,8 +322,8 @@ class LiquidMenuState internal constructor(private val onSelect: (LiquidMenuItem
         val target = highlighted
         finishHold()
         if (target != null) {
-            // A deliberate tap can disclose on release. Sliding across a branch must finish its dwell.
-            if (target === tappedRow || (!target.header && target.item.children.isEmpty())) activate(target)
+            // A deliberate tap (or submenu header tap) can disclose/close on release.
+            if (target === tappedRow || target.header || target.item.children.isEmpty()) activate(target)
         } else if (!containsPanel(at)) dismiss()
         endTracking()
     }

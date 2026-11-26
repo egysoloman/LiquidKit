@@ -28,20 +28,25 @@ fun LiquidAnchoredMenuHost(state: LiquidMenuState, backdrop: Backdrop, items: Li
     modifier: Modifier = Modifier, presentation: LiquidMenuPresentation, actions: List<LiquidMenuItem> = emptyList(),
     slowMotion: Boolean = false, content: @Composable BoxScope.() -> Unit) {
     var returning by remember(state) { mutableStateOf(false) }
+    var pinnedExpandedOrigin by remember(state) { mutableStateOf<Pair<androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp>?>(null) }
     if (state.expanded) SideEffect { returning = true }
-    val overlayOpen = state.openingBounds != null && (state.expanded || returning)
+    val overlayOpen = (state.currentAnchorBounds() ?: state.openingBounds) != null && (state.expanded || returning)
     SideEffect { state.overlayActive = overlayOpen }
     DisposableEffect(state) { onDispose { state.overlayActive = false } }
     LiquidMenuHost(state, backdrop, modifier, rootOverlay = { behind ->
-        val source = state.openingBounds
+        val source = state.currentAnchorBounds() ?: state.openingBounds
         if (source != null && (state.expanded || returning)) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 // This host was laid out before the trigger could be touched. Its overlay shares the origin.
                 val at = state.hostLayout?.takeIf { it.isAttached }?.positionInRoot() ?: return@BoxWithConstraints
-                val anchor = (state.openingGroupBounds ?: source).translate(-at)
+                val groupSource = state.currentGroupBounds() ?: state.openingGroupBounds
+                val anchor = (groupSource ?: source).translate(-at)
                 if (presentation == LiquidMenuPresentation.Popup) {
                     LiquidPopupPanel(state, behind, items, source.translate(-at), maxWidth, maxHeight, actions = actions,
-                        slowMotion = slowMotion, fromBorderlessTrigger = true) { returning = false }
+                        slowMotion = slowMotion, fromBorderlessTrigger = true) {
+                        pinnedExpandedOrigin = null
+                        returning = false
+                    }
                     return@BoxWithConstraints
                 }
                 val density = LocalDensity.current
@@ -58,13 +63,21 @@ fun LiquidAnchoredMenuHost(state: LiquidMenuState, backdrop: Backdrop, items: Li
                     (with(density) { safe.height.toDp() } - inset * 2).coerceAtLeast(1.dp))
                 val x = if (fromRight) right - width else left
                 val y = if (fromBottom) bottom - height else top
-                val destinationX = with(density) {
+                val computedDestX = with(density) {
                     val min = safe.left.toDp() + inset
                     x.coerceIn(min, maxOf(min, safe.right.toDp() - width - inset))
                 }
-                val destinationY = with(density) {
+                val computedDestY = with(density) {
                     val min = safe.top.toDp() + inset
                     y.coerceIn(min, maxOf(min, safe.bottom.toDp() - height - inset))
+                }
+                if (state.expanded) {
+                    SideEffect { pinnedExpandedOrigin = computedDestX to computedDestY }
+                }
+                val (destinationX, destinationY) = if (!state.expanded) {
+                    pinnedExpandedOrigin ?: (computedDestX to computedDestY)
+                } else {
+                    computedDestX to computedDestY
                 }
                 val alignment = when {
                     fromBottom && fromRight -> LiquidMorphAlignment.BottomTrailing
@@ -84,7 +97,10 @@ fun LiquidAnchoredMenuHost(state: LiquidMenuState, backdrop: Backdrop, items: Li
                     sourceAnchorInRoot = source,
                     elasticStretchPx = motion.pose.stretch,
                     elasticCenterPx = motion.pose.center,
-                    onSourceRestored = { returning = false }, collapsedContent = {
+                    onSourceRestored = {
+                        pinnedExpandedOrigin = null
+                        returning = false
+                    }, collapsedContent = {
                         state.sourceTrigger?.toolbar?.foreground?.let { layer ->
                             Spacer(Modifier.fillMaxSize().drawWithContent { drawLayer(layer) })
                         }

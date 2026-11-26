@@ -98,7 +98,7 @@ fun LiquidMenuPicker(
         LaunchedEffect(entry) {
             entry.overlay = { hostOrigin, maxW, maxH ->
                 if (menuState.expanded || closingReturn) {
-                    val anchor = menuState.openingBounds?.translate(-hostOrigin)
+                    val anchor = (menuState.currentAnchorBounds() ?: menuState.openingBounds)?.translate(-hostOrigin)
                     if (anchor != null) {
                         val liveModal = LocalLiquidModalBackdrop.current
                         val explicit = currentExplicitBackdrop
@@ -156,7 +156,7 @@ fun LiquidMenuPicker(
                         val origin = menuState.hostLayout?.let {
                             if (it.isAttached) it.boundsInRoot().topLeft else Offset.Zero
                         } ?: Offset.Zero
-                        val anchor = menuState.openingBounds?.translate(-origin)
+                        val anchor = (menuState.currentAnchorBounds() ?: menuState.openingBounds)?.translate(-origin)
                         if (anchor != null) {
                             LiquidPopupPanel(
                                 state = menuState,

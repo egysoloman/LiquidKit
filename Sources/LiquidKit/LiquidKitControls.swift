@@ -42,7 +42,7 @@ public struct LiquidSliderControl: View {
 
     public init(
         value: Binding<Double>,
-        in bounds: ClosedRange<Double> = 0...1,
+        in bounds: ClosedRange<Double> = 0.0...1.0,
         tapToSeek: Bool = true,
         ticks: [Double] = [],
         neutralValue: Double? = nil
@@ -59,10 +59,10 @@ public struct LiquidSliderControl: View {
         ComposeView { context in
             SkipLiquidKitSlider(
                 value: value,
-                minValue: bounds.lowerBound,
-                maxValue: bounds.upperBound,
+                minValue: bounds.start,
+                maxValue: bounds.endInclusive,
                 tapToSeek: tapToSeek,
-                ticks: ticks,
+                ticks: ticks.toList(),
                 neutralValue: neutralValue,
                 modifier: context.modifier
             ) { next in
@@ -186,8 +186,8 @@ public struct LiquidStepperControl: View {
             SkipLiquidKitStepper(
                 label: label,
                 value: value,
-                minValue: range.lowerBound,
-                maxValue: range.upperBound,
+                minValue: range.start,
+                maxValue: range.endInclusive,
                 tint: tint.composeColor,
                 modifier: context.modifier
             ) { next in
@@ -215,7 +215,7 @@ public struct LiquidSegmentedControl: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitSegmentedPicker(
-                options: options,
+                options: options.toList(),
                 selected: selection,
                 modifier: context.modifier
             ) { next in
@@ -258,7 +258,7 @@ public struct LiquidMenuPickerControl: View {
         ComposeView { context in
             SkipLiquidKitMenuPicker(
                 label: label,
-                options: options,
+                options: options.toList(),
                 selected: selection,
                 tint: tint.composeColor,
                 modifier: context.modifier
@@ -290,6 +290,7 @@ public struct LiquidDateValue: Equatable, Hashable, Sendable {
         self.day = min(31, max(1, day))
     }
 
+    #if !SKIP
     public var foundationDate: Date {
         var components = DateComponents()
         components.year = year
@@ -302,6 +303,7 @@ public struct LiquidDateValue: Equatable, Hashable, Sendable {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
         return LiquidDateValue(year: c.year ?? 2026, month: c.month ?? 1, day: c.day ?? 1)
     }
+    #endif
 }
 
 /// Cross-platform date picker (`DatePicker` on iOS, `LiquidKitDatePicker` on Android).
@@ -411,7 +413,7 @@ public struct LiquidInlinePickerControl: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitInlinePicker(
-                options: options,
+                options: options.toList(),
                 selected: selection,
                 title: title,
                 tint: tint.composeColor,
@@ -475,7 +477,7 @@ public struct LiquidPalettePickerControl: View {
                 )
             }
             SkipLiquidKitPalettePicker(
-                options: specs,
+                options: specs.toList(),
                 selectedId: selection,
                 tint: tint.composeColor,
                 modifier: context.modifier
@@ -549,7 +551,7 @@ public struct LiquidTabsPickerControl: View {
         ComposeView { context in
             let specs = options.map { SkipLiquidKitTabOptionSpec(id: $0.id, label: $0.label, systemImage: $0.systemImage) }
             SkipLiquidKitTabsPicker(
-                options: specs,
+                options: specs.toList(),
                 selectedId: selection,
                 tint: tint.composeColor,
                 modifier: context.modifier

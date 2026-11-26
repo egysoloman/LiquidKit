@@ -8,12 +8,12 @@
 
 ### 方式 A：使用预编译 AAR（适合标准 Android 应用）
 
-从 [GitHub Releases](https://github.com/egysoloman/LiquidKit/releases) 下载 `liquidkit-1.0.0-alpha.2.aar` 和 `backdrop-2.0.1.aar` 放入模块 `libs/` 目录：
+从 [GitHub Releases](https://github.com/egysoloman/LiquidKit/releases) 下载 `liquidkit-1.0.0-alpha.3.aar` 和 `backdrop-2.0.1-liquidkit.1.aar` 放入模块 `libs/` 目录：
 
 ```kotlin
 dependencies {
-    implementation(files("libs/liquidkit-1.0.0-alpha.2.aar"))
-    implementation(files("libs/backdrop-2.0.1.aar"))
+    implementation(files("libs/liquidkit-1.0.0-alpha.3.aar"))
+    implementation(files("libs/backdrop-2.0.1-liquidkit.1.aar"))
     implementation("org.jetbrains.compose.foundation:foundation:1.12.0")
     implementation("org.jetbrains.compose.animation:animation:1.12.0")
     implementation("io.github.kyant0:shapes:1.2.1")
@@ -32,10 +32,10 @@ dependencies {
 
 ```kotlin
 // Android-only 模块
-implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.2")
+implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.3")
 
 // 或 KMP commonMain（若发布完整 KMP 目标）
-implementation("io.liquidkit:liquidkit:1.0.0-alpha.2")
+implementation("io.liquidkit:liquidkit:1.0.0-alpha.3")
 ```
 
 ### 方式 C：Gradle Composite Build 源码依赖

@@ -87,12 +87,12 @@ internal class MenuViewport(
             val prevV = if (paused) Offset.Zero else pointerVelocity
             val dtSec = if (paused) .016f else ((timeMillis - lastMoveMillis) / 1000f).coerceIn(.008f, .095f)
             val instantV = Offset(
-                (delta.x / dtSec).coerceIn(-3200f, 3200f),
-                (delta.y / dtSec).coerceIn(-3200f, 3200f),
+                (delta.x / dtSec).coerceIn(-2800f, 2800f),
+                (delta.y / dtSec).coerceIn(-2800f, 2800f),
             )
             val nextV = Offset(
-                lerp(prevV.x, instantV.x, .22f),
-                lerp(prevV.y, instantV.y, .22f),
+                lerp(prevV.x, instantV.x, .32f),
+                lerp(prevV.y, instantV.y, .32f),
             )
             val instantA = Offset(
                 ((nextV.x - prevV.x) / dtSec).coerceIn(-24000f, 24000f),

@@ -367,6 +367,7 @@ fun LiquidToolbarGroup(
     Box(modifier.then(accessibility).drawWithContent { if (!hidden) drawContent() }
         .onGloballyPositioned {
             group.layout = it
+            group.liveBounds = it.visibleBounds()
             slot?.bounds = Rect(it.localToRoot(Offset.Zero), it.localToRoot(Offset(it.size.width.toFloat(), it.size.height.toFloat())))
         }, propagateMinConstraints = true) {
         val motion = if (backdrop != null) Modifier.graphicsLayer { group.light.motion.apply(this) } else Modifier
@@ -477,6 +478,7 @@ internal val LocalToolbarGroup = staticCompositionLocalOf<ToolbarTouchGroup?> { 
 internal class ToolbarTouchGroup(val light: InteractiveHighlight) {
     var foreground: GraphicsLayer? = null
     var layout: LayoutCoordinates? = null
+    var liveBounds by mutableStateOf<Rect?>(null)
     var surfaceBackdrop by mutableStateOf<Backdrop?>(null)
     var surfaceFill by mutableStateOf(Color.Transparent)
     var surfaceCustomTint by mutableStateOf<Color?>(null)

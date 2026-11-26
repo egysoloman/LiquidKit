@@ -41,9 +41,9 @@ internal fun capsuleDistance(p: Offset, rect: Rect): Float {
 
 internal fun glassUnion(a: Float, b: Float, spacing: Float): Float {
     if (spacing <= 0f) return minOf(a, b)
-    val k = 3f * spacing
+    val k = 1.8f * spacing
     val h = (1f - abs(a - b) / k).coerceAtLeast(0f)
-    return minOf(a, b) - .5f * spacing * h * h * h
+    return minOf(a, b) - .30f * spacing * h * h * h
 }
 
 internal fun facingAnchor(r: Rect, other: Rect): Offset {
@@ -82,7 +82,7 @@ internal fun glassUnionAll(p: Offset, rects: List<Rect>, spacing: Float): Float 
         acc = minOf(acc, capsuleDistance(p, rects[i]))
     }
     if (spacing <= 0f || rects.size < 2) return acc
-    val reach = spacing * 3f
+    val reach = spacing * 1.8f
     for (i in rects.indices) {
         val ri = rects[i]
         for (j in i + 1 until rects.size) {
@@ -102,7 +102,7 @@ internal fun appendFusionNeckPath(
     spacing: Float,
     densityPx: Float,
 ) {
-    val reach = spacing * 3f
+    val reach = spacing * 1.8f
     if (reach <= 0f || !a.inflate(reach).overlaps(b)) return
     val from = facingAnchor(a, b)
     val to = facingAnchor(b, a)
@@ -251,7 +251,7 @@ internal data class GlassCapsuleShape(
         }
         val b = second ?: return Outline.Generic(lobes)
         lobes.addLiquidCapsule(b)
-        val reach = spacing * 3f
+        val reach = spacing * 1.8f
         if (reach > 0f && a.inflate(reach).overlaps(b)) {
             appendFusionNeckPath(lobes, a, b, spacing, density.density)
         }
@@ -274,7 +274,7 @@ internal data class GlassCapsulesShape(
         for (i in valid.indices) {
             combined.addLiquidCapsule(valid[i])
         }
-        val reach = spacing * 3f
+        val reach = spacing * 1.8f
         if (reach > 0f) {
             val densityPx = density.density
             for (i in valid.indices) {
@@ -341,8 +341,8 @@ uniform float capSpacing;
 $GlassCapsuleSDF
 float sminCap(float a, float b, float s) {
     if (s <= 0.0) return min(a, b);
-    float h = max(0.0, 1.0 - abs(a - b) / max(3.0 * s, 0.0001));
-    return min(a, b) - 0.5 * s * h * h * h;
+    float h = max(0.0, 1.0 - abs(a - b) / max(1.8 * s, 0.0001));
+    return min(a, b) - 0.30 * s * h * h * h;
 }
 float2 capFacing(float4 c, float4 other) {
     float2 b = c.zw;

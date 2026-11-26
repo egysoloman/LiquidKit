@@ -16,7 +16,7 @@
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/egysoloman/LiquidKit.git", from: "1.0.0-alpha.2")
+    .package(url: "https://github.com/egysoloman/LiquidKit.git", from: "1.0.0-alpha.3")
 ]
 ```
 
@@ -30,10 +30,10 @@ dependencies: [
    ./gradlew :backdrop:publishToMavenLocal :liquidkit:publishToMavenLocal
    ```
 
-2. 在 Skip 工程中以 `SKIP_BRIDGE=1` 构建或通过 Skip Xcode 插件运行。`Sources/LiquidKit/Skip/skip.yml` 已配置：
-   - `mode: 'transpiled'` 与 `bridging: true`
+2. 通过 Skip Xcode 插件或 SwiftPM 构建（默认启用 `skipstone` 插件；若需纯 Apple 环境构建可设 `LIQUIDKIT_NO_SKIP=1`）。`Sources/LiquidKit/Skip/skip.yml` 已配置：
+   - `mode: 'transpiled'`
    - `mavenLocal()` 仓库
-   - `implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.2")` 与 `io.github.kyant0:backdrop-android:2.0.1`
+   - `implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.3")` 与 `io.github.kyant0:backdrop-android:2.0.1-liquidkit.1`
 
 ---
 
@@ -178,7 +178,7 @@ VStack(spacing: 12) {
 LiquidTextInput("请输入名称", text: $text, roundedBorder: true)
 LiquidSearchBar(query: $query, placeholder: "搜索文件", cancelLabel: "取消")
 
-LiquidKeyValueRow("版本", value: "1.0.0-alpha.2")
+LiquidKeyValueRow("版本", value: "1.0.0-alpha.3")
 LiquidProgress(value: 0.72) // value 为 nil 时展示 Apple 风格加载指示器
 LiquidGaugeControl(value: 0.68, label: "电量", style: "circular") // circular | linear | circularOpen
 

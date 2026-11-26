@@ -119,6 +119,22 @@ private fun warmUpOnHardwareRenderer() {
             }
             RenderEffect.createRuntimeShaderEffect(s, "content")
         }
+        addEffect("tabPlateDark") {
+            val s = RuntimeShader(TabPlateShader).apply {
+                setFloatUniform("rect", 4f, 4f, 3f, 3f)
+                setFloatUniform("plate", 4f, 4f, 3f, 3f)
+                setFloatUniform("strength", 1f)
+                setFloatUniform("density", 3f)
+                setFloatUniform("reduction", 0.15f)
+                setFloatUniform("dispersion", 4f)
+                setFloatUniform("diffusion", 4f)
+                setFloatUniform("dark", 1f)
+                setFloatUniform("joinWidth", 6f)
+                setFloatUniform("bevelWidth", 3f)
+                setFloatUniform("interfaceShade", 0.5f)
+            }
+            RenderEffect.createRuntimeShaderEffect(s, "content")
+        }
         addEffect("tabInk") {
             val s = RuntimeShader(TabInkShader).apply {
                 setFloatUniform("rect", 4f, 4f, 3f, 3f)
@@ -129,7 +145,7 @@ private fun warmUpOnHardwareRenderer() {
                 setFloatUniform("refractionPx", 2f)
                 setFloatUniform("grid", 4f, 4f, 4f, 0.1f)
                 setFloatUniform("darkSurface", 0f)
-                setFloatUniform("sceneOffset", 0f)
+                setFloatUniform("sceneOffset", 4f)
                 setFloatUniform("vibrancy", 0.5f)
                 setFloatUniform("backing", 0.2f)
                 setColorUniform("ink", Color.BLUE)
@@ -144,6 +160,7 @@ private fun warmUpOnHardwareRenderer() {
                 setFloatUniform("topBlurPx", 12f)
                 setFloatUniform("dark", 0f)
                 setFloatUniform("glassOpacity", 0.5f)
+                setFloatUniform("headerAlpha", 1f)
             }
             RenderEffect.createRuntimeShaderEffect(s, "content")
         }

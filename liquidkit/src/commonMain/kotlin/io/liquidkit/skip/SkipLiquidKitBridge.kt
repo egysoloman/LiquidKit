@@ -1069,3 +1069,95 @@ fun SkipLiquidKitMathPlotChart(
     frequency: Double = 1.0,
     modifier: Modifier = Modifier,
 ) = LiquidKitMathPlotChart(modifier = modifier, frequency = frequency.toFloat())
+
+internal fun skipLiquidKitHeroItems(
+    ids: List<String>,
+    titles: List<String>,
+    subtitles: List<String>,
+    badges: List<String>,
+    systemImages: List<String>,
+    tints: List<Color>,
+    summaries: List<String>,
+): List<LiquidKitSharedHeroItem> = ids.indices.map { i ->
+    LiquidKitSharedHeroItem(
+        id = ids[i],
+        title = titles.getOrElse(i) { ids[i] },
+        subtitle = subtitles.getOrElse(i) { "" },
+        badge = badges.getOrElse(i) { "" },
+        symbol = skipLiquidKitSymbol(systemImages.getOrNull(i)) ?: LiquidKitSymbol.Sparkles,
+        tint = tints.getOrElse(i) { Color(0xff007aff) },
+        summary = summaries.getOrElse(i) { "" },
+    )
+}
+
+@Composable
+fun SkipLiquidKitSharedHeroTransition(
+    ids: List<String>,
+    titles: List<String>,
+    subtitles: List<String>,
+    badges: List<String>,
+    systemImages: List<String>,
+    tints: List<Color>,
+    summaries: List<String>,
+    selectedId: String?,
+    columns: Int = 2,
+    modifier: Modifier = Modifier,
+    onSelectId: (String?) -> Unit,
+) {
+    val items = skipLiquidKitHeroItems(ids, titles, subtitles, badges, systemImages, tints, summaries)
+    LiquidKitSharedHeroTransition(
+        items = items,
+        selectedId = selectedId,
+        onSelectId = onSelectId,
+        modifier = modifier,
+        columns = columns,
+    )
+}
+
+@Composable
+fun SkipLiquidKitSharedPlayerMorph(
+    id: String,
+    title: String,
+    artist: String,
+    bpm: Int,
+    tint: Color,
+    isPlaying: Boolean,
+    progress: Double,
+    expanded: Boolean,
+    modifier: Modifier = Modifier,
+    onExpandedChange: (Boolean) -> Unit,
+    onTogglePlay: () -> Unit,
+    onNextTrack: (() -> Unit)? = null,
+) {
+    LiquidKitSharedPlayerMorph(
+        track = LiquidKitSharedPlayerTrack(
+            id = id,
+            title = title,
+            artist = artist,
+            bpm = bpm,
+            tint = tint,
+            isPlaying = isPlaying,
+            progress = progress.toFloat(),
+        ),
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        onTogglePlay = onTogglePlay,
+        modifier = modifier,
+        onNextTrack = onNextTrack,
+    )
+}
+
+@Composable
+fun SkipLiquidKitSharedGlassMorph(
+    expanded: Boolean,
+    useOpticalSdf: Boolean,
+    modifier: Modifier = Modifier,
+    onExpandedChange: (Boolean) -> Unit,
+) {
+    LiquidKitSharedGlassMorph(
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        useOpticalSdf = useOpticalSdf,
+        modifier = modifier,
+    )
+}

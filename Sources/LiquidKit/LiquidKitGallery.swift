@@ -21,7 +21,7 @@ public struct LiquidMeshGradientView: View {
             SkipLiquidKitMeshGradient(
                 width: width,
                 height: height,
-                colors: colors.map { $0.composeColor },
+                colors: colors.map { $0.composeColor }.toList(),
                 modifier: context.modifier
             )
         }
@@ -82,8 +82,8 @@ public struct LiquidMultiDatePickerControl: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitMultiDatePicker(
-                selectedIsoDates: selectedIsoDates,
-                onSelectedIsoDatesChange: { selectedIsoDates = $0 },
+                selectedIsoDates: selectedIsoDates.toList(),
+                onSelectedIsoDatesChange: { selectedIsoDates = Array($0) },
                 tint: tint.composeColor,
                 initialYear: initialYear,
                 initialMonth: initialMonth,
@@ -345,8 +345,8 @@ public struct LiquidReorderableGridView<Tile: View>: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitReorderableGrid(
-                ids: ids,
-                onReorder: { ids = $0 },
+                ids: ids.toList(),
+                onReorder: { ids = Array($0) },
                 columns: columns,
                 tileHeight: tileHeight,
                 spacing: spacing,
@@ -404,10 +404,10 @@ public struct LiquidOutlineGroupView: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitOutlineGroup(
-                ids: items.map { $0.id },
-                titles: items.map { $0.title },
-                parentIds: items.map { $0.parentId },
-                systemImages: items.map { $0.systemImage },
+                ids: items.map { $0.id }.toList(),
+                titles: items.map { $0.title }.toList(),
+                parentIds: items.map { $0.parentId }.toList(),
+                systemImages: items.map { $0.systemImage }.toList(),
                 tint: tint.composeColor,
                 onSelectLeafId: onSelectLeaf,
                 modifier: context.modifier
@@ -450,8 +450,8 @@ public struct LiquidTableView: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitTable(
-                headers: headers,
-                rows: rows,
+                headers: headers.toList(),
+                rows: rows.map { $0.toList() }.toList(),
                 tint: tint.composeColor,
                 modifier: context.modifier
             )
@@ -536,10 +536,10 @@ public struct LiquidBarChartView: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitBarChart(
-                labels: points.map { $0.label },
-                values: points.map { $0.value },
-                colors: points.map { $0.color.composeColor },
-                series: points.map { $0.series },
+                labels: points.map { $0.label }.toList(),
+                values: points.map { $0.value }.toList(),
+                colors: points.map { $0.color.composeColor }.toList(),
+                series: points.map { $0.series }.toList(),
                 horizontal: horizontal,
                 modifier: context.modifier
             )
@@ -607,8 +607,8 @@ public struct LiquidLineAreaChartView: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitLineAreaChart(
-                labels: labels,
-                values: values,
+                labels: labels.toList(),
+                values: values.toList(),
                 lineColor: lineColor.composeColor,
                 ruleValue: ruleValue,
                 ruleColor: ruleColor.composeColor,
@@ -636,17 +636,17 @@ public struct LiquidLineAreaChartView: View {
 }
 
 /// Cross-platform pie/donut chart (`SkipLiquidKitPieDonutChart` on Android, SwiftUI `Canvas` on Apple).
-public struct LiquidPieDonutChartView<Center: View>: View {
+public struct LiquidPieDonutChartView: View {
     public let slices: [LiquidPieChartSlice]
     public let innerRadiusRatio: Double
     public let angularInsetDegrees: Double
-    private let centerContent: () -> Center
+    private let centerContent: (() -> AnyView)?
 
     public init(
         slices: [LiquidPieChartSlice],
         innerRadiusRatio: Double = 0.58,
         angularInsetDegrees: Double = 2.0,
-        @ViewBuilder centerContent: @escaping () -> Center = { EmptyView() }
+        centerContent: (() -> AnyView)? = nil
     ) {
         self.slices = slices
         self.innerRadiusRatio = innerRadiusRatio
@@ -658,14 +658,16 @@ public struct LiquidPieDonutChartView<Center: View>: View {
         #if SKIP
         ComposeView { context in
             SkipLiquidKitPieDonutChart(
-                labels: slices.map { $0.label },
-                values: slices.map { $0.value },
-                colors: slices.map { $0.color.composeColor },
+                labels: slices.map { $0.label }.toList(),
+                values: slices.map { $0.value }.toList(),
+                colors: slices.map { $0.color.composeColor }.toList(),
                 innerRadiusRatio: innerRadiusRatio,
                 angularInsetDegrees: angularInsetDegrees,
                 modifier: context.modifier
             ) {
-                centerContent().Compose(context: context.content())
+                if let centerContent {
+                    centerContent().Compose(context: context.content())
+                }
             }
         }
         #else
@@ -692,7 +694,9 @@ public struct LiquidPieDonutChartView<Center: View>: View {
                 }
             }
             .frame(height: 180)
-            centerContent()
+            if let centerContent {
+                centerContent()
+            }
         }
         #endif
     }

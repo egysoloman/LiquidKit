@@ -122,8 +122,10 @@ public struct LiquidGlassSurfaceView<Content: View>: View {
     public let interactive: Bool
     private let onClick: (() -> Void)?
     private let content: () -> Content
-    @Environment(\.liquidKitOpacity) private var opacity
-    @Environment(\.colorScheme) private var colorScheme
+    #if !SKIP
+    @Environment(\.liquidKitOpacity) private var opacity: Double
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
+    #endif
 
     public init(
         variant: LiquidGlassVariant = .regular,

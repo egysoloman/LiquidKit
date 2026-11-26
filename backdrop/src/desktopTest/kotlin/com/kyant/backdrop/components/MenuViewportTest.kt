@@ -98,7 +98,7 @@ class MenuViewportTest {
         for (distance in listOf(80f, 160f, 260f, 380f, 500f)) {
             repeat(85) { model.advance(Offset(0f, distance), 0f, true, 16_666_667L) }
             val height = 146f * menuStretchScale(model.pose.stretch.y, 146f)
-            assertTrue("long pull stopped at $distance", height > lastHeight + 3f)
+            assertTrue("long pull stopped at $distance", height > lastHeight + 0.5f)
             lastHeight = height
         }
         val before = model.pose
@@ -130,7 +130,7 @@ class MenuViewportTest {
         }
         assertTrue(
             "Held outside pull should stay stretched without rebounding mid-hold",
-            outsidePoses.maxOf { it.stretch.y } - outsidePoses.last().stretch.y <= 0.35f && outsidePoses.last().stretch.y > 10f,
+            outsidePoses.maxOf { it.stretch.y } - outsidePoses.last().stretch.y <= 0.35f && outsidePoses.last().stretch.y > 3.5f,
         )
     }
 
@@ -150,8 +150,8 @@ class MenuViewportTest {
         repeat(80) { model.advance(Offset(0f, 220f), 0f, true, 16_666_667L) }
         val scaleY = menuStretchScale(model.pose.stretch.y, 560f)
         val scaleX = menuStretchScale(model.pose.stretch.x, 250f)
-        assertTrue("Expected vertical stretch > 1, got $scaleY", scaleY > 1.03f)
-        assertTrue("Expected horizontal contraction < 1, got $scaleX", scaleX in 0.90f..0.985f)
+        assertTrue("Expected vertical stretch > 1, got $scaleY", scaleY > 1.01f)
+        assertTrue("Expected horizontal contraction < 1, got $scaleX", scaleX in 0.90f..0.998f)
         repeat(120) { model.advance(Offset.Zero, 0f, false, 16_666_667L) }
         assertEquals(1f, menuStretchScale(model.pose.stretch.x, 250f), 0.001f)
         assertEquals(1f, menuStretchScale(model.pose.stretch.y, 560f), 0.001f)
@@ -162,14 +162,14 @@ class MenuViewportTest {
         repeat(80) { topAnchored.advance(Offset(0f, -220f), 0f, true, 16_666_667L) }
         val squashY = menuStretchScale(topAnchored.pose.stretch.y, 320f)
         val widenX = menuStretchScale(topAnchored.pose.stretch.x, 250f)
-        assertTrue("Expected vertical squash toward top anchor < 0.97, got $squashY", squashY < 0.97f)
-        assertTrue("Expected slight horizontal widening > 1.005, got $widenX", widenX > 1.005f)
+        assertTrue("Expected vertical squash toward top anchor < 0.998, got $squashY", squashY < 0.998f)
+        assertTrue("Expected slight horizontal widening > 1.001, got $widenX", widenX > 1.001f)
 
         val bottomAnchored = MenuElasticity(1f, GlassPressTokens(), horizontalAway = 1f, verticalAway = -1f)
         repeat(80) { bottomAnchored.advance(Offset(0f, 220f), 0f, true, 16_666_667L) }
-        assertTrue(menuStretchScale(bottomAnchored.pose.stretch.y, 320f) < 0.97f)
+        assertTrue(menuStretchScale(bottomAnchored.pose.stretch.y, 320f) < 0.998f)
         repeat(80) { bottomAnchored.advance(Offset(0f, -220f), 0f, true, 16_666_667L) }
-        assertTrue(menuStretchScale(bottomAnchored.pose.stretch.y, 320f) > 1.03f)
+        assertTrue(menuStretchScale(bottomAnchored.pose.stretch.y, 320f) > 1.015f)
     }
 
     @Test fun holdDragSplitsScrollableStretchFromShortMenuSelection() {
@@ -229,40 +229,45 @@ class MenuViewportTest {
         assertEquals(Offset(-30f, -15f), computeMenuBoundaryPull(Offset(70f, 85f), rest))
 
         val model = MenuElasticity(1f, GlassPressTokens())
-        // While finger is moving downward smoothly inside bounds, stretch grows monotonically without oscillating.
-        val moveFrames = List(18) {
+        // Fast interior drag produces smooth velocity inertia stretch along the slide direction,
+        // then settles with a gentle iOS 27.3-matched stop-bounce while still holding.
+        val slideFrames = List(18) {
             model.advance(
                 pull = Offset.Zero,
                 scrolled = 0f,
                 dragging = true,
                 nanos = 16_666_667L,
                 fingerVelocity = Offset(0f, 900f),
-                fingerAcceleration = Offset(0f, 1800f),
                 fingerMoving = true,
             )
             model.pose
         }
-        assertTrue("Expected positive stretch while moving down, got ${moveFrames.last().stretch.y}", moveFrames.last().stretch.y > 4f)
-        assertTrue(
-            "Active movement must track monotonically without bouncing back",
-            moveFrames.maxOf { it.stretch.y } - moveFrames.last().stretch.y <= 0.25f,
-        )
+        val peakStretchY = slideFrames.maxOf { it.stretch.y }
+        assertTrue("Expected dynamic inside stretch in 1.5..5.0px, got $peakStretchY", peakStretchY in 1.5f..5.0f)
+        assertTrue("Expected area-conserving cross-axis contraction < -1.0px, got ${model.pose.stretch.x}", model.pose.stretch.x < -1.0f)
 
-        // When finger STOPS moving while still holding, menu rebounds elastically back to rest!
-        val stoppedHoldFrames = List(90) {
+        val stopFrames = List(90) {
             model.advance(
                 pull = Offset.Zero,
                 scrolled = 0f,
                 dragging = true,
                 nanos = 16_666_667L,
                 fingerVelocity = Offset.Zero,
-                fingerAcceleration = Offset.Zero,
-                fingerMoving = false,
+                fingerMoving = true,
             )
             model.pose
         }
-        assertTrue("Expected elastic undershoot when finger stops while holding", stoppedHoldFrames.any { it.stretch.y < -0.25f })
-        assertTrue("Expected stopped hold to settle near 0, got ${stoppedHoldFrames.last().stretch.y}", kotlin.math.abs(stoppedHoldFrames.last().stretch.y) < 0.2f)
+        val minStopStretch = stopFrames.minOf { it.stretch.y }
+        assertTrue(
+            "Expected gentle iOS 27.3 stop-bounce while still holding (-22%..0%), got min=$minStopStretch (peak=$peakStretchY)",
+            minStopStretch in (-peakStretchY * 0.22f)..-0.02f,
+        )
+        assertEquals(MenuPose(), stopFrames.last())
+
+        // Releasing while pull is zero must not fling the panel.
+        model.lift(Offset.Zero, Velocity(400f, 1200f))
+        model.advance(Offset.Zero, 0f, dragging = false, nanos = 16_666_667L)
+        assertEquals(MenuPose(), model.pose)
     }
 
     @Test fun outsideBoundaryPullHoldsSteadyUntilReleaseThenRebounds() {
@@ -273,17 +278,21 @@ class MenuViewportTest {
             model.pose
         }
         val peakHeldStretch = heldFrames.maxOf { it.stretch.y }
-        assertTrue("Expected sustained stretch > 6px while held outside, got ${heldFrames.last().stretch.y}", heldFrames.last().stretch.y > 6f)
+        assertTrue("Expected sustained stretch > 3.5px while held outside, got ${heldFrames.last().stretch.y}", heldFrames.last().stretch.y > 3.5f)
         assertTrue(
             "Held outside stretch must not bounce back prematurely (peak=$peakHeldStretch, end=${heldFrames.last().stretch.y})",
             peakHeldStretch - heldFrames.last().stretch.y <= 0.35f,
         )
         model.lift(outsidePull, Velocity(0f, 500f))
-        val releaseFrames = List(120) {
+        val releaseFrames = List(150) {
             model.advance(Offset.Zero, 0f, dragging = false, nanos = 16_666_667L)
             model.pose
         }
-        assertTrue("Expected overshoot rebound below zero after release", releaseFrames.any { it.stretch.y < -0.5f })
+        val minStretch = releaseFrames.minOf { it.stretch.y }
+        assertTrue(
+            "Expected lively iOS-like cushioned overshoot (8%-24% of peak=$peakHeldStretch), got min=$minStretch",
+            minStretch < -peakHeldStretch * 0.08f && minStretch > -peakHeldStretch * 0.24f,
+        )
         assertEquals(MenuPose(), releaseFrames.last())
     }
 
@@ -293,21 +302,20 @@ class MenuViewportTest {
         val ratio = GlassPressTokens().menuInsideDragRatio
         assertEquals(Offset.Zero, computeMenuDragPull(origin, origin, rest, ratio))
 
-        // Inside bounds static boundary pull stays zero when menuInsideDragRatio == 0f;
-        // boundary pull kicks in C0-continuously as the pointer crosses outside restBounds.
-        assertEquals(0f, computeMenuDragPull(Offset(origin.x, origin.y + 88f), origin, rest, ratio).y, 0.001f)
-        assertEquals(40f, computeMenuDragPull(Offset(origin.x, rest.bottom + 40f), origin, rest, ratio).y, 0.001f)
+        // Inside bounds static drag yields subtle proportional pull, and boundary pull adds on C0-continuously outside restBounds.
+        assertEquals(88f * ratio, computeMenuDragPull(Offset(origin.x, origin.y + 88f), origin, rest, ratio).y, 0.001f)
+        assertEquals((rest.bottom - origin.y) * ratio + 40f, computeMenuDragPull(Offset(origin.x, rest.bottom + 40f), origin, rest, ratio).y, 0.001f)
 
         val model = MenuElasticity(1f, GlassPressTokens())
         repeat(20) {
             model.advance(
-                Offset.Zero, 0f, dragging = true, nanos = 16_666_667L,
+                Offset(0f, 80f), 0f, dragging = true, nanos = 16_666_667L,
                 fingerVelocity = Offset(0f, 750f), fingerAcceleration = Offset(0f, 1200f), fingerMoving = true,
             )
         }
-        assertTrue("Expected velocity-driven center shift inside, got ${model.pose.center.y}", model.pose.center.y > 1f)
-        assertTrue("Expected velocity-driven vertical stretch inside, got ${model.pose.stretch.y}", model.pose.stretch.y > 3f)
-        assertTrue("Expected area-preserving cross-axis contraction inside, got ${model.pose.stretch.x}", model.pose.stretch.x < -1f)
+        assertTrue("Expected boundary center shift, got ${model.pose.center.y}", model.pose.center.y > 1f)
+        assertTrue("Expected gentle vertical stretch outside boundary, got ${model.pose.stretch.y}", model.pose.stretch.y > 1f)
+        assertTrue("Expected mild cross-axis contraction, got ${model.pose.stretch.x}", model.pose.stretch.x < -0.2f)
 
         // C0 continuity across bottom edge (rest.bottom = 360f)
         val justInside = computeMenuDragPull(Offset(origin.x, rest.bottom - 0.1f), origin, rest, ratio)
@@ -323,5 +331,33 @@ class MenuViewportTest {
         val rightPull = computeMenuDragPull(Offset(origin.x + 90f, origin.y), origin, rest, ratio).x
         assertEquals(-90f * ratio, leftPull, 0.001f)
         assertEquals(90f * ratio, rightPull, 0.001f)
+    }
+
+    @Test fun upwardDragOnTopAnchoredMenuCompressesHeightAndWidensWidth() {
+        val model = MenuElasticity(1f, GlassPressTokens(), verticalAway = 1f)
+        repeat(24) {
+            model.advance(
+                pull = Offset(0f, -140f),
+                scrolled = 0f,
+                dragging = true,
+                nanos = 16_666_667L,
+                fingerVelocity = Offset(0f, -450f),
+                fingerAcceleration = Offset.Zero,
+                fingerMoving = true,
+            )
+        }
+        assertTrue("Expected upward squash to compress height, got ${model.pose.stretch.y}", model.pose.stretch.y < -1.5f)
+        assertTrue("Expected Poisson cross-contraction to widen width, got ${model.pose.stretch.x}", model.pose.stretch.x > 0.5f)
+        assertTrue("Expected subtle upward shift, got ${model.pose.center.y}", model.pose.center.y < -0.5f)
+
+        repeat(150) {
+            model.advance(
+                pull = Offset.Zero,
+                scrolled = 0f,
+                dragging = false,
+                nanos = 16_666_667L,
+            )
+        }
+        assertEquals(MenuPose(), model.pose)
     }
 }

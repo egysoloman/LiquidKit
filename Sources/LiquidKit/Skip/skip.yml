@@ -3,7 +3,6 @@
 #   ./gradlew :backdrop:publishToMavenLocal :liquidkit:publishToMavenLocal
 skip:
   mode: 'transpiled'
-  bridging: true
 
 settings:
   contents:
@@ -19,8 +18,8 @@ build:
   contents:
     - block: 'dependencies'
       contents:
-        - 'implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.2")'
-        - 'implementation("io.github.kyant0:backdrop-android:2.0.1")'
+        - 'implementation("io.liquidkit:liquidkit-android:1.0.0-alpha.3")'
+        - 'implementation("io.github.kyant0:backdrop-android:2.0.1-liquidkit.1")'
         - 'implementation("org.jetbrains.compose.foundation:foundation:1.12.0")'
         - 'implementation("org.jetbrains.compose.animation:animation:1.12.0")'
         - 'implementation("io.github.kyant0:shapes:1.2.1")'

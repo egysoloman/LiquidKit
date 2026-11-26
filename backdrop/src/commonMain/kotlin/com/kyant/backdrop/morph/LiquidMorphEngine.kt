@@ -408,6 +408,8 @@ fun evaluateLiquidMorphFrame(
     density: Float,
     sourceAnchorX: Float? = null,
     contour: GlassMenuContourTokens = DefaultMenuContour,
+    anchorWidthPx: Float = expandedWidthPx,
+    anchorHeightPx: Float = expandedHeightPx,
 ): LiquidMorphFrame {
     val isRightAligned =
         config.alignment == LiquidMorphAlignment.TopTrailing ||
@@ -424,8 +426,8 @@ fun evaluateLiquidMorphFrame(
     val eh = max(48f, expandedHeightPx)
     val er = clamp(expandedRadiusPx, 6f, min(ew, eh) * 0.5f)
 
-    val padX = max(0f, (containerWidthPx - max(sw, ew)) * 0.5f)
-    val padY = max(0f, (containerHeightPx - max(sh, eh)) * 0.5f)
+    val padX = max(0f, (containerWidthPx - max(sw, anchorWidthPx)) * 0.5f)
+    val padY = max(0f, (containerHeightPx - max(sh, anchorHeightPx)) * 0.5f)
 
     val sx = if (isRightAligned) containerWidthPx - padX - sw else padX
     val sy = if (isBottomAligned) containerHeightPx - padY - sh else padY

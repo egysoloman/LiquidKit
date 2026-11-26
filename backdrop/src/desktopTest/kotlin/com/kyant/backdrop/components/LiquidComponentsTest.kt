@@ -1676,7 +1676,7 @@ class LiquidComponentsTest {
     @Test
     fun menuMetricsWidthMatchesNarrowerIosProportionsAndTabsPickerRenders() {
         val metrics = LiquidMenuMetrics(411.dp)
-        assertEquals(216f, metrics.width.value, 0.5f)
+        assertEquals(250f, metrics.width.value, 0.5f)
 
         var selected by mutableStateOf("overview")
         val scene = ImageComposeScene(width = 360, height = 120) {
@@ -1956,6 +1956,154 @@ class LiquidComponentsTest {
         }
         try {
             for (ms in 1L..80L step 20L) scene.render(ms * 1_000_000L).close()
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun navigationCoverDimFractionMonotonicDuringReturnAndInterruptedPush() {
+        // At rest (current == target == 0 or 1), cover dim is 0f.
+        assertEquals(0f, navigationCoverDimFraction(displayedDepth = 0, currentDepth = 0, targetDepth = 0, fraction = 0f), 0.0001f)
+        assertEquals(0f, navigationCoverDimFraction(displayedDepth = 1, currentDepth = 1, targetDepth = 1, fraction = 0f), 0.0001f)
+
+        // Returning (current = 1 -> target = 0): cover on parent (depth = 0) recovers strictly monotonically as fraction grows.
+        val returnSamples = listOf(0f, 0.25f, 0.5f, 0.75f, 1f).map { f ->
+            navigationCoverDimFraction(displayedDepth = 0, currentDepth = 1, targetDepth = 0, fraction = f)
+        }
+        assertEquals(1f, returnSamples.first(), 0.0001f)
+        assertEquals(0.5625f, returnSamples[1], 0.0001f)
+        assertEquals(0f, returnSamples.last(), 0.0001f)
+        assertTrue(returnSamples.zipWithNext().all { (a, b) -> a > b })
+
+        // Interrupted push reversing to back (current = 0, target = 1, fraction 0.4 -> 0): monotonic decay with zero 1f spike.
+        val reversedSamples = listOf(0.4f, 0.2f, 0f).map { f ->
+            navigationCoverDimFraction(displayedDepth = 0, currentDepth = 0, targetDepth = 1, fraction = f)
+        }
+        assertEquals(0.16f, reversedSamples.first(), 0.0001f)
+        assertEquals(0f, reversedSamples.last(), 0.0001f)
+        assertTrue(reversedSamples.zipWithNext().all { (a, b) -> a > b })
+    }
+
+    @Test
+    fun blankSwipeBackStillWorksAfterInterruptedAndCancelledSwipes() {
+        var poppedBack = false
+        val scene = ImageComposeScene(width = 360, height = 320, density = Density(1f)) {
+            LiquidGlassTheme(opacity = .5f, dark = false) {
+                LiquidSwipeBackNavigation(
+                    page = "detail",
+                    previousPage = "root",
+                    depth = { if (it == "root") 0 else 1 },
+                    contentKey = { it },
+                    onNavigateBack = { poppedBack = true },
+                    modifier = Modifier.size(360.dp, 320.dp),
+                ) { _ ->
+                    Box(Modifier.fillMaxSize())
+                }
+            }
+        }
+        try {
+            scene.render(1_000_000L).close()
+            // 1. Partial blank swipe right, pause so it does not register as a fling, then release (cancelled back).
+            scene.sendPointerEvent(PointerEventType.Press, Offset(40f, 160f))
+            scene.render(20_000_000L).close()
+            scene.sendPointerEvent(PointerEventType.Move, Offset(110f, 160f))
+            scene.render(40_000_000L).close()
+            Thread.sleep(115L)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(110f, 160f))
+            scene.render(60_000_000L).close()
+            assertFalse(poppedBack)
+
+            // 2. Interrupt mid-rewind with another partial held swipe right and release.
+            scene.sendPointerEvent(PointerEventType.Press, Offset(40f, 160f))
+            scene.render(80_000_000L).close()
+            scene.sendPointerEvent(PointerEventType.Move, Offset(105f, 160f))
+            scene.render(100_000_000L).close()
+            Thread.sleep(115L)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(105f, 160f))
+            for (ms in 120L..520L step 20L) scene.render(ms * 1_000_000L).close()
+            assertFalse(poppedBack)
+
+            // 3. Full blank-area swipe right must still commit pop cleanly.
+            scene.sendPointerEvent(PointerEventType.Press, Offset(40f, 160f))
+            scene.render(540_000_000L).close()
+            scene.sendPointerEvent(PointerEventType.Move, Offset(160f, 160f))
+            scene.render(560_000_000L).close()
+            scene.sendPointerEvent(PointerEventType.Move, Offset(290f, 160f))
+            scene.render(580_000_000L).close()
+            scene.sendPointerEvent(PointerEventType.Release, Offset(290f, 160f))
+            for (ms in 600L..1200L step 20L) scene.render(ms * 1_000_000L).close()
+            assertTrue("Blank-area swipe-back must still commit after interrupted swipes", poppedBack)
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun sheetSurfaceOpacityIncreasesMonotonicallyFromMediumToLarge() {
+        for (dark in listOf(false, true)) {
+            val atMedium = computeSheetSurfaceAlpha(dark = dark, glassOpacity = 0.5f, largeProgress = 0f)
+            val atMid = computeSheetSurfaceAlpha(dark = dark, glassOpacity = 0.5f, largeProgress = 0.5f)
+            val atLarge = computeSheetSurfaceAlpha(dark = dark, glassOpacity = 0.5f, largeProgress = 1f)
+            assertTrue("Expected translucent Medium sheet alpha < 0.70, got $atMedium", atMedium < 0.70f)
+            assertTrue("Expected monotonic increase at mid-drag ($atMedium < $atMid < $atLarge)", atMedium < atMid && atMid < atLarge)
+            assertEquals(1f, atLarge, 0.0001f)
+        }
+    }
+
+    @Test
+    fun glassEffectContainerCalibratedMeniscusPressToFuseAndSlotTint() {
+        // 1. At spacing = 22f with 48f/44f circles separated by 14f gap (HStack spacing 14), separated at rest.
+        val restMain = Rect(0f, 0f, 48f, 48f)
+        val restSecond = Rect(62f, 2f, 106f, 46f) // 14f edge-to-edge gap
+        assertTrue(
+            "Gap 14f at spacing 22f should stay separated at rest (> 0)",
+            glassUnionAll(Offset(55f, 24f), listOf(restMain, restSecond), 22f) > 0f,
+        )
+        // Expanding the pressed circle by +5f radius reduces the gap to 9f and triggers live press fusion (< 0).
+        val pressedMain = Rect(-5f, -5f, 53f, 53f)
+        assertTrue(
+            "Press-expanded bubble (+5f radius -> 9f gap) should fuse at midpoint (< 0)",
+            glassUnionAll(Offset(57.5f, 24f), listOf(pressedMain, restSecond), 22f) < 0f,
+        )
+
+        // 2. Mid-transition (gap = 10f, spacing = 22f): concavely pinched waist and non-inflated crown shoulder.
+        val midSecond = Rect(58f, 2f, 102f, 46f) // 10f gap
+        val midX = 53f
+        assertTrue(
+            "Midpoint waist at y = 24 - 13 must stay exterior (> 0, concave pinch)",
+            glassUnionAll(Offset(midX, 24f - 13f), listOf(restMain, midSecond), 22f) > 0f,
+        )
+        val shoulderTopY = 24f - kotlin.math.sqrt(24f * 24f - 14f * 14f)
+        assertTrue(
+            "Circle shoulder at dx = +14f must not inflate outward (> 0 outside circle)",
+            glassUnionAll(Offset(24f + 14f, shoulderTopY - 1f), listOf(restMain, midSecond), 22f) > 0f,
+        )
+
+        // 3. Container renders a custom-tinted LiquidToolbarGroup alongside untinted groups cleanly.
+        val scene = ImageComposeScene(width = 320, height = 120) {
+            val layer = rememberLayerBackdrop()
+            LiquidGlassTheme {
+                Box(Modifier.size(320.dp, 120.dp)) {
+                    androidx.compose.foundation.layout.Spacer(
+                        Modifier.size(320.dp, 120.dp).layerBackdrop(layer).background(Color(0xff00c7be)),
+                    )
+                    LiquidGlassEffectContainer(layer, spacing = 22.dp, modifier = Modifier.fillMaxSize()) {
+                        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
+                            LiquidToolbarGroup(
+                                Modifier.size(48.dp),
+                                backdrop = layer,
+                                surfaceColor = Color(0xff00c7be).copy(alpha = 0.58f),
+                            ) {}
+                            LiquidToolbarGroup(Modifier.size(44.dp), backdrop = layer) {}
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            scene.render(1_000_000L).close()
+            scene.render(17_000_000L).close()
         } finally {
             scene.close()
         }

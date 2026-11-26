@@ -189,7 +189,7 @@ public struct LiquidMenuControl: View {
             }
             SkipLiquidKitMenu(
                 title: title,
-                items: specs,
+                items: specs.toList(),
                 borderless: borderless,
                 tint: tint.composeColor,
                 modifier: context.modifier,

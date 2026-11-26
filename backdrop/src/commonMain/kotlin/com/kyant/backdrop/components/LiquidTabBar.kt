@@ -95,38 +95,29 @@ fun <Key> LiquidTabBar(
         val compactHorizontal = maxWidth >= 560.dp
         val expandedHeight = if (compactHorizontal) 48.dp else 56.dp
         val minimizedOrbSize = if (compactHorizontal) 48.dp else 52.dp
-        val gap = 10.dp
-        val slotCount = if (compactHorizontal) tabs.size + if (hasSearch) 1 else 0 else tabs.size
-        val reservedForSearch = if (hasSearch && !compactHorizontal) expandedHeight + gap else 0.dp
-        val availableBarWidth = if (compactHorizontal) {
-            (maxWidth - 16.dp).coerceAtLeast(1.dp)
-        } else {
-            (maxWidth - reservedForSearch).coerceAtLeast(expandedHeight)
-        }
+        val slotCount = tabs.size + if (hasSearch) 1 else 0
+        val availableBarWidth = (maxWidth - 16.dp).coerceAtLeast(1.dp)
         val slot = if (compactHorizontal) {
             minOf(116.dp, availableBarWidth / slotCount)
         } else {
-            minOf(89.dp, (availableBarWidth - 8.dp).coerceAtLeast(1.dp) / tabs.size)
+            minOf(89.dp, (availableBarWidth - 8.dp).coerceAtLeast(1.dp) / slotCount)
         }
         val expandedBarWidth = slot * slotCount + 8.dp
         val currentHeight = lerp(expandedHeight, minimizedOrbSize, p)
         val currentBarWidth = lerp(expandedBarWidth, minimizedOrbSize, p)
-        val index = when {
-            compactHorizontal && searchSelected && hasSearch -> tabs.size
-            !compactHorizontal && searchSelected && hasSearch -> -1
-            else -> tabs.indexOfFirst { it.key == selected }.coerceAtLeast(0)
-        }
+        val index = if (searchSelected && hasSearch) tabs.size else tabs.indexOfFirst { it.key == selected }.coerceAtLeast(0)
 
         Layout(
             modifier = Modifier.fillMaxWidth(),
             content = {
-                Box(Modifier.size(currentBarWidth, currentHeight).clip(LiquidCapsule), contentAlignment = Alignment.Center) {
+                val morphClip = if (p > 0.01f && p < 0.99f) Modifier.clip(LiquidCapsule) else Modifier
+                Box(Modifier.size(currentBarWidth, currentHeight).then(morphClip), contentAlignment = Alignment.Center) {
                     if (showTabs) {
                         LiquidBottomTabsLayout(
                             selectedTabIndex = { index },
                             onTabSelected = { idx ->
                                 if (!minimized) {
-                                    if (compactHorizontal && searchAction != null && idx == tabs.size) {
+                                    if (searchAction != null && idx == tabs.size) {
                                         haptics(LiquidHaptic.SelectionTick)
                                         searchAction()
                                     } else {
@@ -176,7 +167,7 @@ fun <Key> LiquidTabBar(
                                     }
                                 }
                             }
-                            if (compactHorizontal && searchAction != null) {
+                            if (searchAction != null) {
                                 LiquidBottomTab(
                                     onClick = {
                                         if (!minimized) {
@@ -189,16 +180,26 @@ fun <Key> LiquidTabBar(
                                         this.selected = searchSelected
                                     },
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        LiquidIcon(LiquidSymbol.Search, appearance.contentColor, Modifier.size(18.dp))
+                                    if (compactHorizontal) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            LiquidIcon(LiquidSymbol.Search, appearance.contentColor, Modifier.size(18.dp))
+                                            BasicText(
+                                                searchLabel,
+                                                modifier = Modifier.weight(1f, fill = false),
+                                                style = TextStyle(appearance.contentColor, 13.sp, FontWeight.SemiBold),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    } else {
+                                        LiquidIcon(LiquidSymbol.Search, appearance.contentColor, Modifier.size(23.dp))
                                         BasicText(
                                             searchLabel,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                            style = TextStyle(appearance.contentColor, 13.sp, FontWeight.SemiBold),
+                                            style = TextStyle(appearance.contentColor, 10.sp, FontWeight.SemiBold),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -232,7 +233,7 @@ fun <Key> LiquidTabBar(
                         }
                     }
                 }
-                if (searchAction != null && (!compactHorizontal || p > 0.02f)) {
+                if (searchAction != null && p > 0.02f) {
                     val activeSearchColor = if (searchSelected && tint.isSpecified) tint else appearance.contentColor
                     val searchOrbTint = if (searchSelected && tint.isSpecified) {
                         tint.copy(alpha = if (appearance.dark) .20f else .14f)
@@ -243,17 +244,11 @@ fun <Key> LiquidTabBar(
                         backdrop = backdrop,
                         modifier = Modifier
                             .size(currentHeight)
-                            .let {
-                                if (compactHorizontal) {
-                                    it.graphicsLayer {
-                                        alpha = tabsFadeProgress
-                                        val s = lerp(0.84f, 1f, p)
-                                        scaleX = s
-                                        scaleY = s
-                                    }
-                                } else {
-                                    it
-                                }
+                            .graphicsLayer {
+                                alpha = tabsFadeProgress
+                                val s = lerp(0.84f, 1f, p)
+                                scaleX = s
+                                scaleY = s
                             }
                             .semantics {
                                 contentDescription = searchLabel
@@ -282,41 +277,20 @@ fun <Key> LiquidTabBar(
             val placeables = measurables.map { it.measure(loose) }
             val bar = placeables[0]
             val search = placeables.getOrNull(1)
-            val gapPx = gap.roundToPx()
-            val layoutWidth = if (constraints.hasBoundedWidth) {
-                constraints.maxWidth
-            } else {
-                bar.width + if (search != null && !compactHorizontal) gapPx + search.width else 0
-            }
+            val layoutWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else bar.width
             val layoutHeight = maxOf(bar.height, search?.height ?: 0)
-            if (compactHorizontal) {
-                val expandedBarWidthPx = expandedBarWidth.roundToPx()
-                val centeredBarX = (layoutWidth - bar.width) / 2f
-                val minimizedBarX = if (hasSearch) 0f else (layoutWidth - bar.width) / 2f
-                val barX = lerp(centeredBarX, minimizedBarX, p).roundToInt()
-                layout(layoutWidth, layoutHeight) {
-                    if (search != null) {
-                        val expandedRightSlotX = (layoutWidth + expandedBarWidthPx) / 2f - search.width
-                        val minimizedSearchX = (layoutWidth - search.width).toFloat()
-                        val searchX = lerp(expandedRightSlotX, minimizedSearchX, p).roundToInt()
-                        search.placeRelative(searchX, (layoutHeight - search.height) / 2)
-                    }
-                    bar.placeRelative(barX, (layoutHeight - bar.height) / 2)
+            val expandedBarWidthPx = expandedBarWidth.roundToPx()
+            val centeredBarX = (layoutWidth - bar.width) / 2f
+            val minimizedBarX = if (hasSearch) 0f else (layoutWidth - bar.width) / 2f
+            val barX = lerp(centeredBarX, minimizedBarX, p).roundToInt()
+            layout(layoutWidth, layoutHeight) {
+                if (search != null) {
+                    val expandedRightSlotX = (layoutWidth + expandedBarWidthPx) / 2f - search.width
+                    val minimizedSearchX = (layoutWidth - search.width).toFloat()
+                    val searchX = lerp(expandedRightSlotX, minimizedSearchX, p).roundToInt()
+                    search.placeRelative(searchX, (layoutHeight - search.height) / 2)
                 }
-            } else {
-                val expandedGroupWidth = bar.width + if (search != null) gapPx + search.width else 0
-                val centeredBarX = (layoutWidth - expandedGroupWidth) / 2f
-                val minimizedBarX = if (search != null) 0f else (layoutWidth - bar.width) / 2f
-                val barX = lerp(centeredBarX, minimizedBarX, p).roundToInt()
-                layout(layoutWidth, layoutHeight) {
-                    bar.placeRelative(barX, (layoutHeight - bar.height) / 2)
-                    if (search != null) {
-                        val centeredSearchX = centeredBarX + bar.width + gapPx
-                        val minimizedSearchX = (layoutWidth - search.width).toFloat()
-                        val searchX = lerp(centeredSearchX, minimizedSearchX, p).roundToInt()
-                        search.placeRelative(searchX, (layoutHeight - search.height) / 2)
-                    }
-                }
+                bar.placeRelative(barX, (layoutHeight - bar.height) / 2)
             }
         }
     }

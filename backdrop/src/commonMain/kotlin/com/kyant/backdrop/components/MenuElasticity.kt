@@ -55,26 +55,32 @@ internal class MenuElasticity(
     }
 
     fun lift(pull: Offset, velocity: Velocity) {
-        val limit = tokens.menuPullLimit.value * density * 24f
+        if (pull == Offset.Zero) return
+        val limit = tokens.menuPullLimit.value * density * 14f
         if (limit <= 0f) return
         fun transfer(v: Float) = limit * tanh(v * tokens.menuReleaseTransfer / limit)
         val vx = transfer(velocity.x)
         val vy = transfer(velocity.y)
         // The surface already has momentum. Transfer measured finger speed without resetting that motion.
-        x.velocity += (vx - x.velocity) * .65f
-        y.velocity += (vy - y.velocity) * .65f
+        x.velocity += (vx - x.velocity) * .45f
+        y.velocity += (vy - y.velocity) * .45f
         val horizontal = horizontalAway * vx
         val vertical = verticalAway * vy
-        width.velocity += (strain(horizontal, vertical) - width.velocity) * .65f
-        height.velocity += (strain(vertical, horizontal) - height.velocity) * .65f
+        width.velocity += (strain(horizontal, vertical) - width.velocity) * .45f
+        height.velocity += (strain(vertical, horizontal) - height.velocity) * .45f
     }
 
-    private fun strain(along: Float, across: Float) =
-        tokens.directionalStretch * (along - tokens.menuCrossContraction * across)
+    private fun strain(along: Float, across: Float, crossScale: Float = 1f) =
+        tokens.directionalStretch * (along - tokens.menuCrossContraction * crossScale * across)
 
     private fun directed(value: Float, away: Float): Float {
         val signed = value * away
-        return if (signed >= 0f) signed else signed * .68f
+        return if (signed >= 0f) signed else signed * .72f
+    }
+
+    private fun directedVel(value: Float, away: Float): Float {
+        val signed = value * away
+        return if (signed >= 0f) signed else signed * .85f
     }
 
     fun advance(
@@ -85,27 +91,33 @@ internal class MenuElasticity(
         fingerVelocity: Offset = Offset.Zero,
         fingerAcceleration: Offset = Offset.Zero,
         fingerMoving: Boolean = dragging,
+        aspectRatio: Float = 1f,
     ): Boolean {
         val listMoving = scrollFollower.advance(scrolled, tracking, nanos)
         val flex = tokens.scrollFlex.value * density * tanh((scrolled - scrollFollower.value) / (16f * density))
         val knee = (tokens.menuPullLimit.value * density).coerceAtLeast(.01f)
-        val dynamicCap = 9f * density
         // The force becomes harder to overcome, but a longer pull still moves the edge.
         fun displacement(distance: Float) = knee * asinh(distance * tokens.menuDragGain / knee)
-        fun velPull(v: Float) = dynamicCap * tanh(v * .011f / dynamicCap)
-        val activeMove = dragging && fingerMoving
-        val rawX = displacement(pull.x) + if (activeMove) velPull(fingerVelocity.x) else 0f
-        val rawY = displacement(pull.y) + flex + if (activeMove) velPull(fingerVelocity.y) else 0f
-        val targetX = if (rawX * horizontalAway < 0f) rawX * .45f else rawX
-        val targetY = if (rawY * verticalAway < 0f) rawY * .45f else rawY
-        val directedX = directed(rawX, horizontalAway)
-        val directedY = directed(rawY, verticalAway)
-        val centerSpring = if (activeMove) tracking else release
+        val baseCap = 6.5f * density
+        fun velPull(v: Float, pullAlong: Float): Float {
+            val outBoost = 1f + 0.85f * ((abs(pullAlong) - 24f * density) / (50f * density)).coerceIn(0f, 1f)
+            return (baseCap * outBoost) * tanh(v * .0105f / baseCap)
+        }
+        val dispX = displacement(pull.x)
+        val dispY = displacement(pull.y) + flex
+        val velX = if (dragging) velPull(fingerVelocity.x, pull.x) else 0f
+        val velY = if (dragging) velPull(fingerVelocity.y, pull.y) else 0f
+        val targetX = (if (dispX * horizontalAway < 0f) dispX * .80f else dispX) + velX
+        val targetY = (if (dispY * verticalAway < 0f) dispY * .80f else dispY) + velY
+        val directedX = directed(dispX, horizontalAway) + directedVel(velX, horizontalAway)
+        val directedY = directed(dispY, verticalAway) + directedVel(velY, verticalAway)
+        val widthAspect = aspectRatio.coerceIn(0.55f, 2.2f)
+        val centerSpring = if (dragging) tracking else release
         val movingX = x.advance(targetX, centerSpring, nanos)
         val movingY = y.advance(targetY, centerSpring, nanos)
-        val shapeSpring = if (activeMove) tracking else aspectRelease
-        val resizingX = width.advance(strain(directedX, directedY), shapeSpring, nanos)
-        val resizingY = height.advance(strain(directedY, directedX), shapeSpring, nanos)
+        val shapeSpring = if (dragging) tracking else aspectRelease
+        val resizingX = width.advance(strain(directedX, directedY, crossScale = widthAspect), shapeSpring, nanos)
+        val resizingY = height.advance(strain(directedY, directedX, crossScale = 1f / widthAspect), shapeSpring, nanos)
         return listMoving || movingX || movingY || resizingX || resizingY
     }
 }

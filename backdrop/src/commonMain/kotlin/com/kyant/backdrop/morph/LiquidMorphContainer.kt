@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
+import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -65,7 +66,6 @@ import com.kyant.backdrop.components.liquidGlassShadow
 import com.kyant.backdrop.components.rememberLiquidRimHighlight
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.diffuseBackdrop
 import com.kyant.backdrop.RuntimeShader
 import com.kyant.backdrop.SharedRenderEffectShaderCache
 import com.kyant.backdrop.internal.RuntimeShaderEffect
@@ -75,6 +75,7 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.tanh
 
 /** The live glass body, including its translation and the parent's depth transform. */
 internal class LiquidMorphBody(private val frame: () -> LiquidMorphFrame) {
@@ -169,23 +170,18 @@ fun LiquidMorphContainer(
         val sourceAnchorX = if (sourceAnchorInRoot != null && origin != null)
             origin.localPositionOf(origin.findRootCoordinates(), sourceAnchorInRoot.center).x else null
         val menuTokens = LocalLiquidGlassTokens.current.menu
-        val maxStretchPx = with(density) { minOf(20.dp.toPx(), margin.toPx() * 0.85f) }
-        val clampedStretchX = elasticStretchPx.x.coerceIn(-maxStretchPx, maxStretchPx)
-        val clampedStretchY = elasticStretchPx.y.coerceIn(-maxStretchPx, maxStretchPx)
+        val maxStretchPx = with(density) { minOf(23.dp.toPx(), (margin - 1.dp).toPx()) }
+        val clampedStretchX = elasticStretchPx.x.coerceIn(-maxStretchPx * 0.95f, maxStretchPx)
+        val clampedStretchY = elasticStretchPx.y.coerceIn(-maxStretchPx * 0.95f, maxStretchPx)
         val baseEwPx = with(density) { fittedMenu.width.toPx() }
         val baseEhPx = with(density) { fittedMenu.height.toPx() }
         val collapsedWPx = with(density) { fittedCollapsed.width.toPx() }
         val collapsedHPx = with(density) { fittedCollapsed.height.toPx() }
         val liveEwPx = (baseEwPx + clampedStretchX).coerceAtLeast(collapsedWPx)
         val liveEhPx = (baseEhPx + clampedStretchY).coerceAtLeast(collapsedHPx)
-        val alignRight = config.alignment == LiquidMorphAlignment.TopTrailing ||
-            config.alignment == LiquidMorphAlignment.BottomTrailing
-        val alignBottom = config.alignment == LiquidMorphAlignment.BottomLeading ||
-            config.alignment == LiquidMorphAlignment.BottomTrailing
-        val deltaW = liveEwPx - baseEwPx
-        val deltaH = liveEhPx - baseEhPx
-        val geoShiftX = (if (alignRight) -deltaW * 0.28f else deltaW * 0.28f) + elasticCenterPx.x
-        val geoShiftY = (if (alignBottom) -deltaH * 0.28f else deltaH * 0.28f) + elasticCenterPx.y
+        val shiftCapPx = with(density) { 10.dp.toPx() }
+        val geoShiftX = shiftCapPx * tanh(elasticCenterPx.x * 0.46f / shiftCapPx)
+        val geoShiftY = shiftCapPx * tanh(elasticCenterPx.y * 0.46f / shiftCapPx)
         val frame = evaluateLiquidMorphFrame(
             phys = physics,
             config = config,
@@ -200,6 +196,8 @@ fun LiquidMorphContainer(
             density = density.density,
             sourceAnchorX = sourceAnchorX,
             contour = menuTokens.contour,
+            anchorWidthPx = baseEwPx,
+            anchorHeightPx = baseEhPx,
         )
 
         val returnOwner = LocalMenuReturnOwner.current
@@ -263,11 +261,8 @@ fun LiquidMorphContainer(
             val panelRadius = appearance.menuBlurRadius + config.blurRadiusDp.dp * .35f
             val controlBlur = appearance.controlBlurRadius *
                 if (!borderless && toolbar?.inNavigationBar == true) frame.materialProgress else 1f
-            blur(controlBlur.toPx())
-            val opacityT = appearance.opacity
-            val diffusionCurve = 1f - (1f - opacityT) * (1f - opacityT)
-            val diffusion = menuTokens.clearDiffusion + (menuTokens.denseDiffusion - menuTokens.clearDiffusion) * diffusionCurve
-            diffuseBackdrop(panelRadius.toPx(), diffusion.coerceIn(0f, 1f) * frame.materialProgress)
+            val effectiveBlurPx = lerp(controlBlur.toPx(), panelRadius.toPx(), frame.materialProgress.coerceIn(0f, 1f))
+            blur(effectiveBlurPx)
             if (hasLens) liquidMorphLens(frame, optics, touch.position, touch.strength.value, appearance)
         }
         val silhouette = remember(frame.pill, frame.body) { frame.fallbackShape() }
@@ -398,8 +393,10 @@ fun LiquidMorphContainer(
                             modifier = Modifier
                                 .requiredSize(fittedMenu)
                                 .graphicsLayer {
-                                    scaleX = frame.expandedScaleX
-                                    scaleY = frame.expandedScaleY
+                                    val elasticScaleX = (liveEwPx / baseEwPx.coerceAtLeast(1f)).coerceIn(0.80f, 1.24f)
+                                    val elasticScaleY = (liveEhPx / baseEhPx.coerceAtLeast(1f)).coerceIn(0.80f, 1.24f)
+                                    scaleX = frame.expandedScaleX * elasticScaleX
+                                    scaleY = frame.expandedScaleY * elasticScaleY
                                     renderEffect = if (frame.expandedBlurPx > 0.15f) {
                                         BlurEffect(
                                             frame.expandedBlurPx,
